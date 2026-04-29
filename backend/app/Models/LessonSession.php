@@ -39,7 +39,6 @@ class LessonSession extends Model
     {
         return $query->where('status', 'active');
     }
-}
 
     // Длительность в минутах
     public function getDurationMinutesAttribute(): ?int
@@ -58,3 +57,4 @@ class LessonSession extends Model
             default      => 'low',
         };
     }
+}
