@@ -40,3 +40,21 @@ class LessonSession extends Model
         return $query->where('status', 'active');
     }
 }
+
+    // Длительность в минутах
+    public function getDurationMinutesAttribute(): ?int
+    {
+        if (!$this->started_at || !$this->ended_at) return null;
+        return (int) $this->started_at->diffInMinutes($this->ended_at);
+    }
+
+    // Уровень вовлечённости
+    public function getEngagementLevelAttribute(): string
+    {
+        $score = $this->avg_engagement_score ?? 0;
+        return match(true) {
+            $score >= 75 => 'high',
+            $score >= 50 => 'medium',
+            default      => 'low',
+        };
+    }

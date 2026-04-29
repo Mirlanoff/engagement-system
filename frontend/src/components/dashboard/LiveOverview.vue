@@ -1,21 +1,15 @@
 <template>
   <div class="live-overview">
 
-    <!-- Нет активных уроков -->
-    <div v-if="sessions.length === 0" class="empty-state">
-      <div class="empty-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
-          <path d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/>
-        </svg>
-      </div>
-      <h3>Нет активных уроков</h3>
-      <p>Когда учитель начнёт урок — он появится здесь в реальном времени</p>
-    </div>
+    <StartSessionModal
+      v-if="showModal"
+      @close="showModal = false"
+      @started="onSessionStarted"
+    />
 
-    <!-- Сетка классов -->
-    <template v-else>
-      <!-- Сводная статистика сверху -->
-      <div class="summary-bar">
+    <!-- Кнопка начать урок -->
+    <div class="top-bar">
+      <div class="summary-bar" v-if="sessions.length > 0">
         <div class="summary-item">
           <span class="summary-value">{{ sessions.length }}</span>
           <span class="summary-label">Активных уроков</span>
@@ -29,72 +23,90 @@
           <span class="summary-label">Средняя вовлечённость</span>
         </div>
         <div class="summary-item">
-          <span class="summary-value danger">{{ lowEngagementCount }}</span>
+          <span class="summary-value danger">{{ lowCount }}</span>
           <span class="summary-label">Низкая вовлечённость</span>
         </div>
       </div>
+      <div v-else class="spacer"></div>
+      <button class="start-btn" @click="showModal = true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5,3 19,12 5,21"/></svg>
+        Начать урок
+      </button>
+    </div>
 
-      <!-- Карточки классов -->
-      <div class="sessions-grid">
-        <ClassroomCard
-          v-for="session in sessions"
-          :key="session.id"
-          :session="session"
-          :avg="averages[session.id] || session.avg_engagement_score || 0"
-          :student-scores="scores[session.id] || {}"
-          @click="$emit('select', session)"
-        />
-      </div>
-    </template>
+    <!-- Нет уроков -->
+    <div v-if="sessions.length === 0" class="empty-state">
+      <div class="empty-icon">📹</div>
+      <h3>Нет активных уроков</h3>
+      <p>Нажми «Начать урок» чтобы запустить мониторинг класса</p>
+    </div>
+
+    <!-- Карточки классов -->
+    <div v-else class="sessions-grid">
+      <ClassroomCard
+        v-for="session in sessions"
+        :key="session.id"
+        :session="session"
+        :avg="averages[session.id] || session.avg_engagement_score || 0"
+        :student-scores="scores[session.id] || {}"
+        @click="$emit('select', session)"
+      />
+    </div>
+
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
-import ClassroomCard from './ClassroomCard.vue'
+import { ref, computed } from 'vue'
+import ClassroomCard      from './ClassroomCard.vue'
+import StartSessionModal  from './StartSessionModal.vue'
 
 const props = defineProps({
-  sessions: { type: Array, default: () => [] },
+  sessions: { type: Array,  default: () => [] },
   scores:   { type: Object, default: () => ({}) },
   averages: { type: Object, default: () => ({}) },
 })
-defineEmits(['select'])
+const emit = defineEmits(['select', 'refresh'])
 
-const totalStudents = computed(() => props.sessions.reduce((s, sess) => s + (sess.students_count || 0), 0))
+const showModal = ref(false)
 
+function onSessionStarted(session) {
+  emit('refresh')
+}
+
+const totalStudents = computed(() =>
+  props.sessions.reduce((s, sess) => s + (sess.students_count || 0), 0)
+)
 const schoolAvg = computed(() => {
   if (!props.sessions.length) return 0
   const avgs = props.sessions.map(s => props.averages[s.id] || s.avg_engagement_score || 0)
   return Math.round(avgs.reduce((a, b) => a + b, 0) / avgs.length)
 })
-
-const lowEngagementCount = computed(() =>
+const lowCount = computed(() =>
   props.sessions.filter(s => (props.averages[s.id] || 0) < 50).length
 )
-
-function avgClass(avg) {
-  if (avg >= 75) return 'success'
-  if (avg >= 50) return 'warning'
-  return 'danger'
+function avgClass(v) {
+  return v >= 75 ? 'success' : v >= 50 ? 'warning' : 'danger'
 }
 </script>
 
 <style scoped>
-.live-overview { display:flex; flex-direction:column; gap:24px; }
-
-.empty-state { display:flex; flex-direction:column; align-items:center; justify-content:center; padding:80px 20px; color:#475569; text-align:center; }
-.empty-icon { width:64px; height:64px; margin-bottom:16px; opacity:0.3; }
-.empty-icon svg { width:100%; height:100%; }
-.empty-state h3 { font-size:16px; font-weight:600; color:#64748b; margin:0 0 8px; }
-.empty-state p { font-size:13px; color:#475569; margin:0; max-width:300px; }
-
-.summary-bar { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
-.summary-item { background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.07); border-radius:12px; padding:16px 20px; }
-.summary-value { display:block; font-size:28px; font-weight:700; color:#f1f5f9; letter-spacing:-1px; }
+.live-overview { display:flex; flex-direction:column; gap:20px; }
+.top-bar { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+.spacer { flex:1; }
+.start-btn { display:flex; align-items:center; gap:8px; padding:10px 20px; background:linear-gradient(135deg,#6366f1,#8b5cf6); border:none; border-radius:10px; color:white; font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap; transition:opacity .15s; font-family:inherit; }
+.start-btn:hover { opacity:.9; }
+.start-btn svg { width:14px; height:14px; }
+.summary-bar { display:flex; gap:12px; flex:1; }
+.summary-item { background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.07); border-radius:10px; padding:12px 16px; }
+.summary-value { display:block; font-size:22px; font-weight:700; color:#f1f5f9; letter-spacing:-0.5px; }
 .summary-value.success { color:#22c55e; }
 .summary-value.warning { color:#f59e0b; }
 .summary-value.danger  { color:#ef4444; }
-.summary-label { display:block; font-size:12px; color:#64748b; margin-top:2px; }
-
+.summary-label { display:block; font-size:11px; color:#64748b; margin-top:1px; }
+.empty-state { display:flex; flex-direction:column; align-items:center; justify-content:center; padding:80px 20px; color:#475569; text-align:center; }
+.empty-icon { font-size:48px; margin-bottom:16px; }
+.empty-state h3 { font-size:16px; font-weight:600; color:#64748b; margin:0 0 8px; }
+.empty-state p { font-size:13px; color:#475569; margin:0; }
 .sessions-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:16px; }
 </style>

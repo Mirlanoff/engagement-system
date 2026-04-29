@@ -1,0 +1,16 @@
+# Секретные данные — НИКОГДА не загружать
+.env
+backend/.env
+
+# Зависимости — устанавливаются заново
+backend/vendor/
+frontend/node_modules/
+
+# Сборка
+frontend/dist/
+
+# Docker данные
+docker/nginx/ssl/
+
+# Логи
+*.log

@@ -2,67 +2,46 @@
 
 namespace App\Http\Controllers\Api\V1;
 
-use App\Domain\Session\Models\LessonSession;
-use App\Domain\Session\Services\SessionService;
-use App\Domain\Session\DTOs\StartSessionDTO;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Session\StartSessionRequest;
 use App\Http\Resources\Session\SessionResource;
-use App\Http\Resources\Session\SessionDetailResource;
+use App\Models\LessonSession;
+use App\Services\SessionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\DB;
 
 class SessionController extends Controller
 {
     public function __construct(
-        private readonly SessionService $sessionService,
-    ) {
-        $this->middleware('auth:sanctum');
-        $this->middleware('role:admin,supervisor,teacher');
-    }
+        private readonly SessionService $service,
+    ) {}
 
-    /**
-     * GET /api/v1/sessions
-     * Список сессий с фильтрацией
-     */
-    public function index(Request $request): AnonymousResourceCollection
+    // GET /api/v1/sessions
+    public function index(Request $request): JsonResponse
     {
-        $this->authorize('viewAny', LessonSession::class);
-
-        $sessions = LessonSession::query()
-            ->whereHas('classroom', fn ($q) =>
-                $q->where('school_id', $request->user()->school_id)
-            )
-            ->when($request->classroom_id, fn ($q) =>
-                $q->forClassroom($request->classroom_id)
-            )
-            ->when($request->status, fn ($q) =>
-                $q->where('status', $request->status)
-            )
-            ->when($request->date_from, fn ($q) =>
-                $q->where('started_at', '>=', $request->date_from)
-            )
-            ->when($request->date_to, fn ($q) =>
-                $q->where('started_at', '<=', $request->date_to)
-            )
-            ->with(['classroom', 'teacher'])
+        $sessions = LessonSession::with(['classroom', 'teacher'])
+            ->when($request->classroom_id, fn($q) => $q->where('classroom_id', $request->classroom_id))
+            ->when($request->status,       fn($q) => $q->where('status', $request->status))
+            ->when($request->date_from,    fn($q) => $q->where('started_at', '>=', $request->date_from))
+            ->when($request->date_to,      fn($q) => $q->where('started_at', '<=', $request->date_to . ' 23:59:59'))
             ->orderByDesc('started_at')
             ->paginate($request->per_page ?? 20);
 
-        return SessionResource::collection($sessions);
+        return response()->json([
+            'data' => SessionResource::collection($sessions->items()),
+            'meta' => [
+                'current_page' => $sessions->currentPage(),
+                'last_page'    => $sessions->lastPage(),
+                'total'        => $sessions->total(),
+            ],
+        ]);
     }
 
-    /**
-     * GET /api/v1/sessions/active
-     * Все активные сессии школы (для дашборда супервайзера)
-     */
-    public function active(Request $request): JsonResponse
+    // GET /api/v1/sessions/active
+    public function active(): JsonResponse
     {
-        $sessions = LessonSession::active()
-            ->whereHas('classroom', fn ($q) =>
-                $q->where('school_id', $request->user()->school_id)
-            )
+        $sessions = LessonSession::where('status', 'active')
             ->with(['classroom', 'teacher'])
             ->get();
 
@@ -72,154 +51,144 @@ class SessionController extends Controller
         ]);
     }
 
-    /**
-     * POST /api/v1/sessions
-     * Старт нового урока
-     */
+    // POST /api/v1/sessions
     public function store(StartSessionRequest $request): JsonResponse
     {
-        $dto = new StartSessionDTO(
+        $session = $this->service->start(
             classroomId: $request->classroom_id,
             teacherId:   $request->user()->id,
             subject:     $request->subject,
         );
 
-        $session = $this->sessionService->start($dto);
-
         return response()->json([
-            'data'    => new SessionDetailResource($session),
+            'data'    => new SessionResource($session),
             'message' => 'Урок начат',
         ], 201);
     }
 
-    /**
-     * GET /api/v1/sessions/{session}
-     */
+    // GET /api/v1/sessions/{session}
     public function show(LessonSession $session): JsonResponse
     {
-        $this->authorize('view', $session);
-
-        $session->load(['classroom', 'teacher', 'alerts' => fn ($q) => $q->latest()->limit(20)]);
-
-        return response()->json([
-            'data' => new SessionDetailResource($session),
-        ]);
+        $session->load(['classroom', 'teacher']);
+        return response()->json(['data' => new SessionResource($session)]);
     }
 
-    /**
-     * POST /api/v1/sessions/{session}/pause
-     */
+    // POST /api/v1/sessions/{session}/pause
     public function pause(LessonSession $session): JsonResponse
     {
-        $this->authorize('manage', $session);
-        $session = $this->sessionService->pause($session);
+        try {
+            $session = $this->service->pause($session);
+        } catch (\DomainException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
 
-        return response()->json([
-            'data'    => new SessionResource($session),
-            'message' => 'Урок на паузе',
-        ]);
+        return response()->json(['data' => new SessionResource($session), 'message' => 'Урок на паузе']);
     }
 
-    /**
-     * POST /api/v1/sessions/{session}/resume
-     */
+    // POST /api/v1/sessions/{session}/resume
     public function resume(LessonSession $session): JsonResponse
     {
-        $this->authorize('manage', $session);
-        $session = $this->sessionService->resume($session);
+        try {
+            $session = $this->service->resume($session);
+        } catch (\DomainException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
 
-        return response()->json([
-            'data'    => new SessionResource($session),
-            'message' => 'Урок возобновлён',
-        ]);
+        return response()->json(['data' => new SessionResource($session), 'message' => 'Урок возобновлён']);
     }
 
-    /**
-     * POST /api/v1/sessions/{session}/end
-     */
+    // POST /api/v1/sessions/{session}/end
     public function end(LessonSession $session): JsonResponse
     {
-        $this->authorize('manage', $session);
-        $session = $this->sessionService->end($session);
+        try {
+            $session = $this->service->end($session);
+        } catch (\DomainException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
 
-        return response()->json([
-            'data'    => new SessionDetailResource($session),
-            'message' => 'Урок завершён',
-        ]);
+        return response()->json(['data' => new SessionResource($session), 'message' => 'Урок завершён']);
     }
 
-    /**
-     * GET /api/v1/sessions/{session}/timeline
-     * Timeline вовлечённости по минутам
-     */
+    // GET /api/v1/sessions/{session}/timeline
     public function timeline(LessonSession $session): JsonResponse
     {
-        $this->authorize('view', $session);
-
-        $aggregates = $session->aggregates()
+        $data = DB::table('engagement_aggregates')
+            ->where('session_id', $session->id)
             ->orderBy('minute_at')
             ->get()
-            ->map(fn ($a) => [
-                'minute'    => $a->minute_at->diffInMinutes($session->started_at),
+            ->map(fn($a) => [
+                'minute'    => (int) \Carbon\Carbon::parse($a->minute_at)->diffInMinutes($session->started_at),
                 'avg_score' => (float) $a->avg_score,
                 'min_score' => (float) $a->min_score,
                 'max_score' => (float) $a->max_score,
+                'students'  => $a->students_detected,
                 'high'      => $a->high_engagement_count,
                 'medium'    => $a->medium_engagement_count,
                 'low'       => $a->low_engagement_count,
-                'students'  => $a->students_detected,
             ]);
 
         return response()->json([
             'session_id' => $session->id,
             'started_at' => $session->started_at?->toIso8601String(),
-            'data'       => $aggregates,
+            'data'       => $data,
         ]);
     }
 
-    /**
-     * GET /api/v1/sessions/{session}/students
-     * Статистика по студентам за урок
-     */
+    // GET /api/v1/sessions/{session}/students
     public function students(LessonSession $session): JsonResponse
     {
-        $this->authorize('view', $session);
-
-        $students = \App\Domain\Engagement\Models\EngagementSnapshot::forSession($session->id)
-            ->with('student:id,name,student_code')
+        $data = DB::table('engagement_snapshots as es')
+            ->join('students as s', 's.id', '=', 'es.student_id')
+            ->where('es.session_id', $session->id)
+            ->groupBy('es.student_id', 's.name', 's.student_code')
             ->selectRaw('
-                student_id,
-                AVG(engagement_score) as avg_score,
-                MIN(engagement_score) as min_score,
-                MAX(engagement_score) as max_score,
+                es.student_id,
+                s.name as student_name,
+                s.student_code,
+                ROUND(AVG(es.engagement_score)::numeric, 2) as avg_score,
+                ROUND(MIN(es.engagement_score)::numeric, 2) as min_score,
+                ROUND(MAX(es.engagement_score)::numeric, 2) as max_score,
                 COUNT(*) as snapshots,
-                SUM(CASE WHEN face_detected = false THEN 1 ELSE 0 END) as absent_count,
-                MODE() WITHIN GROUP (ORDER BY emotion) as dominant_emotion
+                SUM(CASE WHEN es.face_detected = false THEN 1 ELSE 0 END) as absent_count
             ')
-            ->groupBy('student_id')
             ->orderByDesc('avg_score')
-            ->get();
-
-        return response()->json([
-            'session_id' => $session->id,
-            'data'       => $students->map(fn ($s) => [
-                'student_id'      => $s->student_id,
-                'student'         => $s->student ? [
-                    'name' => $s->student->name,
-                    'code' => $s->student->student_code,
-                ] : null,
-                'avg_score'       => round($s->avg_score, 2),
-                'min_score'       => round($s->min_score, 2),
-                'max_score'       => round($s->max_score, 2),
-                'snapshots'       => $s->snapshots,
-                'absent_count'    => $s->absent_count,
-                'dominant_emotion'=> $s->dominant_emotion,
-                'level'           => match(true) {
+            ->get()
+            ->map(fn($s) => [
+                'student_id'   => $s->student_id,
+                'name'         => $s->student_name,
+                'code'         => $s->student_code,
+                'avg_score'    => (float) $s->avg_score,
+                'min_score'    => (float) $s->min_score,
+                'max_score'    => (float) $s->max_score,
+                'snapshots'    => $s->snapshots,
+                'absent_count' => $s->absent_count,
+                'level'        => match(true) {
                     $s->avg_score >= 75 => 'high',
                     $s->avg_score >= 50 => 'medium',
                     default              => 'low',
                 },
-            ]),
+            ]);
+
+        return response()->json(['session_id' => $session->id, 'data' => $data]);
+    }
+
+    // POST /api/internal/snapshots  (вызывается ML сервисом)
+    public function receiveSnapshots(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'session_id'                   => 'required|string',
+            'snapshots'                    => 'required|array|min:1',
+            'snapshots.*.student_id'       => 'required|string',
+            'snapshots.*.camera_id'        => 'required|string',
+            'snapshots.*.captured_at'      => 'required|date',
+            'snapshots.*.engagement_score' => 'required|numeric|min:0|max:100',
+            'snapshots.*.emotion'          => 'nullable|string',
+            'snapshots.*.gaze_yaw'         => 'nullable|numeric',
+            'snapshots.*.face_detected'    => 'nullable|boolean',
         ]);
+
+        $this->service->processSnapshots($validated['session_id'], $validated['snapshots']);
+
+        return response()->json(['status' => 'accepted', 'count' => count($validated['snapshots'])], 202);
     }
 }
