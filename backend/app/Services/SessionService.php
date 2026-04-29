@@ -2,17 +2,20 @@
 
 namespace App\Services;
 
-use App\Models\LessonSession;
+use App\Infrastructure\ML\MlServiceClient;
+use App\Infrastructure\WebSocket\SessionBroadcaster;
 use App\Models\Classroom;
-use App\Events\SessionStarted;
-use App\Events\SessionEnded;
-use App\Events\SessionPaused;
-use App\Events\SessionResumed;
+use App\Models\LessonSession;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class SessionService
 {
+    public function __construct(
+        private readonly MlServiceClient $mlClient,
+        private readonly SessionBroadcaster $broadcaster,
+    ) {}
+
     // ── Старт урока ─────────────────────────────────────────────
 
     public function start(string $classroomId, string $teacherId, ?string $subject): LessonSession
@@ -40,12 +43,14 @@ class SessionService
 
             $session->load(['classroom', 'teacher']);
 
+            $this->mlClient->startCapture(
+                sessionId: $session->id,
+                classroomId: $classroomId,
+                cameras: $classroom->camera_config ?? [],
+            );
+
             // Broadcast через WebSocket
-            try {
-                broadcast(new SessionStarted($session))->toOthers();
-            } catch (\Throwable $e) {
-                Log::warning('SessionStarted broadcast failed', ['error' => $e->getMessage()]);
-            }
+            $this->broadcaster->sessionStarted($session);
 
             Log::info('Session started', [
                 'session_id'   => $session->id,
@@ -67,11 +72,9 @@ class SessionService
 
         $session->update(['status' => 'paused']);
 
-        try {
-            broadcast(new SessionPaused($session))->toOthers();
-        } catch (\Throwable $e) {
-            Log::warning('SessionPaused broadcast failed', ['error' => $e->getMessage()]);
-        }
+        $this->mlClient->pauseCapture($session->id);
+
+        $this->broadcaster->sessionPaused($session);
 
         return $session->fresh(['classroom', 'teacher']);
     }
@@ -86,11 +89,9 @@ class SessionService
 
         $session->update(['status' => 'active']);
 
-        try {
-            broadcast(new SessionResumed($session))->toOthers();
-        } catch (\Throwable $e) {
-            Log::warning('SessionResumed broadcast failed', ['error' => $e->getMessage()]);
-        }
+        $this->mlClient->resumeCapture($session->id);
+
+        $this->broadcaster->sessionResumed($session);
 
         return $session->fresh(['classroom', 'teacher']);
     }
@@ -104,6 +105,7 @@ class SessionService
         }
 
         return DB::transaction(function () use ($session) {
+            $this->mlClient->stopCapture($session->id);
 
             // Считаем итоговую статистику из снэпшотов
             $stats = $this->calculateStats($session->id);
@@ -117,11 +119,7 @@ class SessionService
                 'total_snapshots'      => $stats['total'],
             ]);
 
-            try {
-                broadcast(new SessionEnded($session))->toOthers();
-            } catch (\Throwable $e) {
-                Log::warning('SessionEnded broadcast failed', ['error' => $e->getMessage()]);
-            }
+            $this->broadcaster->sessionEnded($session);
 
             Log::info('Session ended', [
                 'session_id'    => $session->id,

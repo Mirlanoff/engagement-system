@@ -2,9 +2,9 @@
 
 namespace App\Infrastructure\WebSocket;
 
-use App\Domain\Session\Models\LessonSession;
-use App\Domain\Alert\Models\EngagementAlert;
-use Illuminate\Support\Facades\Broadcast;
+use App\Models\EngagementAlert;
+use App\Models\LessonSession;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Все WebSocket события системы.
@@ -20,47 +20,38 @@ class SessionBroadcaster
 
     public function sessionStarted(LessonSession $session): void
     {
-        Broadcast::on("private-school.{$session->classroom->school_id}")
-            ->as('session.started')
-            ->with([
-                'session_id'    => $session->id,
-                'classroom_id'  => $session->classroom_id,
-                'classroom_name'=> $session->classroom->name,
-                'subject'       => $session->subject,
-                'teacher'       => $session->teacher?->name,
-                'started_at'    => $session->started_at->toIso8601String(),
-                'students_count'=> $session->students_count,
-            ])
-            ->send();
+        try {
+            broadcast(new \App\Events\SessionStarted($session))->toOthers();
+        } catch (\Throwable $e) {
+            Log::warning('SessionStarted broadcast failed', ['error' => $e->getMessage()]);
+        }
     }
 
     public function sessionPaused(LessonSession $session): void
     {
-        Broadcast::on("presence-session.{$session->id}")
-            ->as('session.paused')
-            ->with(['session_id' => $session->id])
-            ->send();
+        try {
+            broadcast(new \App\Events\SessionPaused($session))->toOthers();
+        } catch (\Throwable $e) {
+            Log::warning('SessionPaused broadcast failed', ['error' => $e->getMessage()]);
+        }
     }
 
     public function sessionResumed(LessonSession $session): void
     {
-        Broadcast::on("presence-session.{$session->id}")
-            ->as('session.resumed')
-            ->with(['session_id' => $session->id])
-            ->send();
+        try {
+            broadcast(new \App\Events\SessionResumed($session))->toOthers();
+        } catch (\Throwable $e) {
+            Log::warning('SessionResumed broadcast failed', ['error' => $e->getMessage()]);
+        }
     }
 
     public function sessionEnded(LessonSession $session): void
     {
-        Broadcast::on("presence-session.{$session->id}")
-            ->as('session.ended')
-            ->with([
-                'session_id'        => $session->id,
-                'duration_minutes'  => $session->duration_minutes,
-                'avg_score'         => $session->avg_engagement_score,
-                'ended_at'          => $session->ended_at->toIso8601String(),
-            ])
-            ->send();
+        try {
+            broadcast(new \App\Events\SessionEnded($session))->toOthers();
+        } catch (\Throwable $e) {
+            Log::warning('SessionEnded broadcast failed', ['error' => $e->getMessage()]);
+        }
     }
 
     // ── Realtime обновление вовлечённости ────────────────────────
@@ -89,10 +80,11 @@ class SessionBroadcaster
             ], $snapshots),
         ];
 
-        Broadcast::on("presence-session.{$sessionId}")
-            ->as('engagement.update')
-            ->with($payload)
-            ->send();
+        try {
+            broadcast(new \App\Events\EngagementUpdated($sessionId, $payload))->toOthers();
+        } catch (\Throwable $e) {
+            Log::warning('EngagementUpdated broadcast failed', ['error' => $e->getMessage()]);
+        }
     }
 
     // ── Алерты ──────────────────────────────────────────────────
@@ -110,16 +102,13 @@ class SessionBroadcaster
             'triggered_at'=> $alert->triggered_at->toIso8601String(),
         ];
 
-        // Школьный канал (все супервайзеры)
-        Broadcast::on("private-school.{$alert->classroom->school_id}")
-            ->as('engagement.alert')
-            ->with($payload)
-            ->send();
-
-        // Канал сессии
-        Broadcast::on("presence-session.{$sessionId}")
-            ->as('engagement.alert')
-            ->with($payload)
-            ->send();
+        try {
+            broadcast(new \App\Events\EngagementUpdated($sessionId, [
+                'type' => 'engagement.alert',
+                'alert' => $payload,
+            ]))->toOthers();
+        } catch (\Throwable $e) {
+            Log::warning('EngagementAlert broadcast failed', ['error' => $e->getMessage()]);
+        }
     }
 }

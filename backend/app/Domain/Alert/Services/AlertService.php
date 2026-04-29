@@ -2,9 +2,9 @@
 
 namespace App\Domain\Alert\Services;
 
-use App\Domain\Alert\Models\EngagementAlert;
-use App\Domain\Alert\Models\AlertThreshold;
-use App\Domain\Session\Models\LessonSession;
+use App\Models\AlertThreshold;
+use App\Models\EngagementAlert;
+use App\Models\LessonSession;
 use App\Infrastructure\WebSocket\SessionBroadcaster;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;

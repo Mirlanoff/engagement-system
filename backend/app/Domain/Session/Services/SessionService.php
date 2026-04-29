@@ -2,14 +2,15 @@
 
 namespace App\Domain\Session\Services;
 
-use App\Domain\Session\Models\LessonSession;
 use App\Domain\Session\DTOs\StartSessionDTO;
-use App\Domain\Classroom\Models\Classroom;
 use App\Domain\Engagement\Services\EngagementAggregatorService;
 use App\Domain\Alert\Services\AlertService;
 use App\Domain\Recommendation\Services\AiRecommendationService;
 use App\Infrastructure\WebSocket\SessionBroadcaster;
 use App\Infrastructure\ML\MlServiceClient;
+use App\Models\Classroom;
+use App\Models\EngagementSnapshot;
+use App\Models\LessonSession;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -144,7 +145,7 @@ class SessionService
         DB::transaction(function () use ($session, $snapshots) {
             // Bulk insert снэпшотов
             $records = array_map(fn ($s) => $this->prepareSnapshotRecord($session, $s), $snapshots);
-            \App\Domain\Engagement\Models\EngagementSnapshot::insert($records);
+            EngagementSnapshot::insert($records);
 
             // Обновляем агрегаты по минуте
             $this->aggregator->updateMinuteAggregate($session, $snapshots);

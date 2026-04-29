@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Session;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class StartSessionRequest extends FormRequest
 {
@@ -14,7 +15,11 @@ class StartSessionRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'classroom_id' => 'required|uuid|exists:classrooms,id',
+            'classroom_id' => [
+                'required',
+                'uuid',
+                Rule::exists('classrooms', 'id')->where('school_id', $this->user()?->school_id),
+            ],
             'subject'      => 'nullable|string|max:255',
         ];
     }

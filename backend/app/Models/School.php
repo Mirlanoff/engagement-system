@@ -28,4 +28,9 @@ class School extends Model
     {
         return $this->hasMany(Classroom::class);
     }
+
+    public function alertThresholds()
+    {
+        return $this->hasMany(AlertThreshold::class);
+    }
 }

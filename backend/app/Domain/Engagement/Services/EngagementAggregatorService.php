@@ -2,9 +2,9 @@
 
 namespace App\Domain\Engagement\Services;
 
-use App\Domain\Session\Models\LessonSession;
-use App\Domain\Engagement\Models\EngagementSnapshot;
-use App\Domain\Engagement\Models\EngagementAggregate;
+use App\Models\EngagementAggregate;
+use App\Models\EngagementSnapshot;
+use App\Models\LessonSession;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 

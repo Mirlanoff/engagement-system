@@ -39,6 +39,11 @@ class Classroom extends Model
         return $this->hasMany(LessonSession::class);
     }
 
+    public function alertThresholds()
+    {
+        return $this->hasMany(AlertThreshold::class);
+    }
+
     public function scopeActive($query)
     {
         return $query->where('is_active', true);

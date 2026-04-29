@@ -2,12 +2,12 @@
 
 namespace App\Domain\Session\Models;
 
-use App\Domain\Classroom\Models\Classroom;
-use App\Domain\Engagement\Models\EngagementAggregate;
-use App\Domain\Engagement\Models\EngagementSnapshot;
-use App\Domain\Alert\Models\EngagementAlert;
-use App\Domain\Recommendation\Models\AiRecommendation;
-use App\Domain\Auth\Models\User;
+use App\Models\AiRecommendation;
+use App\Models\Classroom;
+use App\Models\EngagementAggregate;
+use App\Models\EngagementAlert;
+use App\Models\EngagementSnapshot;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;

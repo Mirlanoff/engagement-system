@@ -39,8 +39,41 @@ class LessonSession extends Model
     {
         return $query->where('status', 'active');
     }
-}
 
+    public function scopeForClassroom($query, string $classroomId)
+    {
+        return $query->where('classroom_id', $classroomId);
+    }
+
+    public function snapshots()
+    {
+        return $this->hasMany(EngagementSnapshot::class, 'session_id');
+    }
+
+    public function aggregates()
+    {
+        return $this->hasMany(EngagementAggregate::class, 'session_id');
+    }
+
+    public function alerts()
+    {
+        return $this->hasMany(EngagementAlert::class, 'session_id');
+    }
+
+    public function recommendations()
+    {
+        return $this->hasMany(AiRecommendation::class, 'session_id');
+    }
+
+    public function isActive(): bool
+    {
+        return $this->status === 'active';
+    }
+
+    public function isPaused(): bool
+    {
+        return $this->status === 'paused';
+    }
     // Длительность в минутах
     public function getDurationMinutesAttribute(): ?int
     {
@@ -58,3 +91,4 @@ class LessonSession extends Model
             default      => 'low',
         };
     }
+}

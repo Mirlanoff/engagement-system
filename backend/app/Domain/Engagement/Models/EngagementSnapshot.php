@@ -2,9 +2,9 @@
 
 namespace App\Domain\Engagement\Models;
 
-use App\Domain\Session\Models\LessonSession;
-use App\Domain\Student\Models\Student;
-use App\Domain\Classroom\Models\Classroom;
+use App\Models\Classroom;
+use App\Models\LessonSession;
+use App\Models\Student;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;

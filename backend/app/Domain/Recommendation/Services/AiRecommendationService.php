@@ -2,9 +2,9 @@
 
 namespace App\Domain\Recommendation\Services;
 
-use App\Domain\Recommendation\Models\AiRecommendation;
-use App\Domain\Session\Models\LessonSession;
 use App\Domain\Engagement\Services\EngagementAggregatorService;
+use App\Models\AiRecommendation;
+use App\Models\LessonSession;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -60,7 +60,7 @@ class AiRecommendationService
         $timeline = $stats['timeline'];
 
         // Топ-3 проблемных студента по средней вовлечённости
-        $weakStudents = \App\Domain\Engagement\Models\EngagementSnapshot::forSession($session->id)
+        $weakStudents = \App\Models\EngagementSnapshot::forSession($session->id)
             ->selectRaw('student_id, AVG(engagement_score) as avg, MODE() WITHIN GROUP (ORDER BY emotion) as dominant_emotion')
             ->groupBy('student_id')
             ->orderBy('avg')

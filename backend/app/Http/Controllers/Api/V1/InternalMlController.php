@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers\Api\V1;
 
-use App\Domain\Session\Services\SessionService;
 use App\Http\Controllers\Controller;
+use App\Services\SessionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -16,9 +16,7 @@ class InternalMlController extends Controller
 {
     public function __construct(
         private readonly SessionService $sessionService,
-    ) {
-        $this->middleware('internal.api');
-    }
+    ) {}
 
     /**
      * POST /api/internal/snapshots
@@ -60,7 +58,7 @@ class InternalMlController extends Controller
             'snapshots.*.processing_time_ms' => 'nullable|numeric|min:0',
         ]);
 
-        $this->sessionService->processIncomingSnapshots(
+        $this->sessionService->processSnapshots(
             $validated['session_id'],
             $validated['snapshots']
         );
@@ -88,13 +86,6 @@ class InternalMlController extends Controller
             'camera_id'  => $validated['camera_id'],
             'error'      => $validated['error'],
         ]);
-
-        // Уведомляем через WebSocket
-        broadcast(new \App\Events\CameraErrorEvent(
-            $sessionId,
-            $validated['camera_id'],
-            $validated['error']
-        ))->toOthers();
 
         return response()->json(['status' => 'received'], 202);
     }
