@@ -59,7 +59,11 @@ install() {
     gen_ssl
 
     log_info "Сборка Docker образов..."
-    $COMPOSE build --parallel
+    $COMPOSE --profile build build --parallel
+
+    log_info "Сборка фронтенда Vue.js..."
+    mkdir -p docker/nginx/html
+    $COMPOSE --profile build run --rm vue-builder
 
     log_info "Запуск БД и Redis..."
     $COMPOSE up -d postgres redis
@@ -120,7 +124,11 @@ deploy() {
     git pull origin main
 
     log_info "Пересборка образов..."
-    $COMPOSE build --parallel laravel ml-service
+    $COMPOSE --profile build build --parallel laravel ml-service vue-builder
+
+    log_info "Пересборка фронтенда Vue.js..."
+    mkdir -p docker/nginx/html
+    $COMPOSE --profile build run --rm vue-builder
 
     log_info "Применение миграций..."
     $COMPOSE run --rm laravel php artisan migrate --force
@@ -131,7 +139,7 @@ deploy() {
     $COMPOSE run --rm laravel php artisan view:cache
 
     log_info "Перезапуск сервисов..."
-    $COMPOSE up -d --force-recreate laravel horizon scheduler celery-worker
+    $COMPOSE up -d --force-recreate laravel horizon scheduler celery-worker nginx
 
     log_success "=== Деплой завершён ==="
     status

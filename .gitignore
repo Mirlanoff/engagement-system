@@ -8,6 +8,8 @@ frontend/node_modules/
 
 # Сборка
 frontend/dist/
+docker/nginx/html/*
+!docker/nginx/html/.gitkeep
 
 # Docker данные
 docker/nginx/ssl/
