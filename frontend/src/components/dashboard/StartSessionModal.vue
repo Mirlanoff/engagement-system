@@ -46,12 +46,12 @@ const error      = ref('')
 
 onMounted(async () => {
   try {
-    const { data } = await api.get('/v1/classrooms')
+    const { data } = await api.get('/classrooms')
     classrooms.value = data.data || []
   } catch {
     // fallback — попробуем получить из активных сессий
     try {
-      const { data } = await api.get('/v1/sessions?per_page=5')
+      const { data } = await api.get('/sessions?per_page=5')
       const seen = new Set()
       classrooms.value = (data.data || [])
         .filter(s => s.classroom_id && !seen.has(s.classroom_id) && seen.add(s.classroom_id))
