@@ -64,9 +64,18 @@ services:
       - "443:443"
     volumes:
       - ./docker/nginx/conf.d:/etc/nginx/conf.d:ro
-      - ./docker/nginx/ssl:/etc/nginx/ssl:ro
+      - ./docker/nginx/ssl:/etc/nginx/ssl
       - ./docker/nginx/html:/usr/share/nginx/html:ro
       - storage_data:/var/www/html/storage/app/public:ro
+    command: >
+      sh -c "if [ ! -s /etc/nginx/ssl/server.crt ] || [ ! -s /etc/nginx/ssl/server.key ]; then
+        apk add --no-cache openssl >/dev/null &&
+        openssl req -x509 -nodes -newkey rsa:2048 -days 365
+          -keyout /etc/nginx/ssl/server.key
+          -out /etc/nginx/ssl/server.crt
+          -subj '/CN=localhost';
+      fi;
+      nginx -g 'daemon off;'"
     depends_on:
       - laravel
       - grafana
@@ -373,7 +382,7 @@ services:
       - "--storage.tsdb.retention.time=30d"
       - "--web.enable-lifecycle"
     volumes:
-      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./docker/prometheus:/etc/prometheus:ro
       - prometheus_data:/prometheus
     networks:
       - monitoring_net
@@ -417,6 +426,17 @@ services:
     security_opt:
       - no-new-privileges:true
     read_only: true
+    networks:
+      - monitoring_net
+
+  nginx-exporter:
+    image: nginx/nginx-prometheus-exporter:latest
+    container_name: engage_nginx_exporter
+    restart: unless-stopped
+    command:
+      - "-nginx.scrape-uri=http://nginx/nginx_status"
+    depends_on:
+      - nginx
     networks:
       - monitoring_net
 

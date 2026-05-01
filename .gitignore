@@ -16,7 +16,8 @@ docker/nginx/html/*
 !docker/nginx/html/.gitkeep
 
 # Docker данные
-docker/nginx/ssl/
+docker/nginx/ssl/*
+!docker/nginx/ssl/.gitkeep
 
 # Бэкапы/дампы БД
 backups/
