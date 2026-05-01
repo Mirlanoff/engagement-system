@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import structlog
 import time
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.config import settings
 from app.routers import capture, status
@@ -28,7 +29,8 @@ app = FastAPI(
     description="Сервис анализа вовлечённости студентов",
     version="1.0.0",
     lifespan=lifespan,
-    docs_url="/docs",
+    docs_url="/docs" if settings.expose_docs else None,
+    openapi_url="/openapi.json" if settings.expose_docs else None,
     redoc_url=None,
 )
 
@@ -42,6 +44,8 @@ app.add_middleware(
 
 # HMAC аутентификация для всех роутов кроме /health и /docs
 app.add_middleware(InternalAuthMiddleware)
+
+Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
 
 # Роутеры
 app.include_router(capture.router, prefix="/capture", tags=["capture"])

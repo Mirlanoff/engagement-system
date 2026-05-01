@@ -1,16 +1,27 @@
 # Секретные данные — НИКОГДА не загружать
 .env
 backend/.env
+*.env.secrets
 
 # Зависимости — устанавливаются заново
 backend/vendor/
 frontend/node_modules/
+.venv*/
+__pycache__/
+*.py[cod]
 
 # Сборка
 frontend/dist/
+docker/nginx/html/*
+!docker/nginx/html/.gitkeep
 
 # Docker данные
 docker/nginx/ssl/
+
+# Бэкапы/дампы БД
+backups/
+*.sql.gz
+/full_backup.sql
 
 # Логи
 *.log

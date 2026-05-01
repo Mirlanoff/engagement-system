@@ -5,7 +5,8 @@ from typing import Literal
 class Settings(BaseSettings):
     # Laravel API
     laravel_api_url: str = "http://laravel/api/internal"
-    laravel_api_secret: str = "secret"
+    laravel_api_secret: str
+    expose_docs: bool = False
 
     # Redis
     redis_url: str = "redis://redis:6379/1"
@@ -31,6 +32,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = False
+        extra = "ignore"
 
 
 settings = Settings()

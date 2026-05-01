@@ -2,15 +2,17 @@
 
 namespace App\Domain\Recommendation\Services;
 
+use App\Domain\Engagement\Models\EngagementSnapshot;
+use App\Domain\Engagement\Services\EngagementAggregatorService;
 use App\Domain\Recommendation\Models\AiRecommendation;
 use App\Domain\Session\Models\LessonSession;
-use App\Domain\Engagement\Services\EngagementAggregatorService;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class AiRecommendationService
 {
     private const MODEL = 'claude-sonnet-4-20250514';
+
     private const API_URL = 'https://api.anthropic.com/v1/messages';
 
     public function __construct(
@@ -56,11 +58,11 @@ class AiRecommendationService
     {
         $session->load(['classroom.students', 'teacher']);
 
-        $stats    = $this->aggregator->calculateSessionStats($session);
+        $stats = $this->aggregator->calculateSessionStats($session);
         $timeline = $stats['timeline'];
 
         // Топ-3 проблемных студента по средней вовлечённости
-        $weakStudents = \App\Domain\Engagement\Models\EngagementSnapshot::forSession($session->id)
+        $weakStudents = EngagementSnapshot::forSession($session->id)
             ->selectRaw('student_id, AVG(engagement_score) as avg, MODE() WITHIN GROUP (ORDER BY emotion) as dominant_emotion')
             ->groupBy('student_id')
             ->orderBy('avg')
@@ -68,64 +70,75 @@ class AiRecommendationService
             ->get();
 
         $prompt = $this->buildPrompt($type, $session, $stats, $timeline, $weakStudents);
+        $apiKey = config('services.claude.api_key');
+
+        if (! $apiKey) {
+            Log::warning('Claude API key is not configured; skipping AI recommendation', [
+                'session_id' => $session->id,
+                'type' => $type,
+            ]);
+
+            return;
+        }
 
         try {
             $response = Http::withHeaders([
-                'x-api-key'         => config('services.claude.api_key'),
+                'x-api-key' => $apiKey,
                 'anthropic-version' => '2023-06-01',
-                'content-type'      => 'application/json',
+                'content-type' => 'application/json',
             ])->timeout(30)->post(self::API_URL, [
-                'model'      => self::MODEL,
+                'model' => self::MODEL,
                 'max_tokens' => 1000,
-                'system'     => $this->getSystemPrompt(),
-                'messages'   => [
+                'system' => $this->getSystemPrompt(),
+                'messages' => [
                     ['role' => 'user', 'content' => $prompt],
                 ],
             ]);
 
             if ($response->failed()) {
                 Log::error('Claude API error', ['status' => $response->status(), 'body' => $response->body()]);
+
                 return;
             }
 
             $content = $response->json('content.0.text');
-            $parsed  = $this->parseStructuredResponse($content);
+            $parsed = $this->parseStructuredResponse($content);
 
             AiRecommendation::create([
-                'session_id'           => $session->id,
-                'generated_for'        => $session->teacher_id,
-                'type'                 => $type,
-                'content'              => $parsed['content'],
-                'key_insights'         => $parsed['insights'],
-                'action_items'         => $parsed['actions'],
-                'session_avg_score'    => $stats['avg'],
-                'input_data_summary'   => [
-                    'avg'      => $stats['avg'],
-                    'min'      => $stats['min'],
-                    'max'      => $stats['max'],
+                'session_id' => $session->id,
+                'generated_for' => $session->teacher_id,
+                'type' => $type,
+                'content' => $parsed['content'],
+                'key_insights' => $parsed['insights'],
+                'action_items' => $parsed['actions'],
+                'session_avg_score' => $stats['avg'],
+                'input_data_summary' => [
+                    'avg' => $stats['avg'],
+                    'min' => $stats['min'],
+                    'max' => $stats['max'],
                     'duration' => $session->duration_minutes,
                     'students' => $session->students_count,
                 ],
-                'model_used'           => self::MODEL,
-                'tokens_used'          => $response->json('usage.output_tokens'),
+                'model_used' => self::MODEL,
+                'tokens_used' => $response->json('usage.output_tokens'),
             ]);
 
             Log::info('AI recommendation generated', [
                 'session_id' => $session->id,
-                'type'       => $type,
+                'type' => $type,
             ]);
 
         } catch (\Throwable $e) {
             Log::error('Failed to generate AI recommendation', [
                 'session_id' => $session->id,
-                'error'      => $e->getMessage(),
+                'error' => $e->getMessage(),
             ]);
         }
     }
 
     private function getSystemPrompt(): string
     {
-        return <<<PROMPT
+        return <<<'PROMPT'
 Ты — педагогический аналитик системы мониторинга вовлечённости студентов.
 Анализируешь данные с камер и выдаёшь конкретные, практичные рекомендации учителям.
 Отвечай на русском языке. Будь конкретным, избегай общих фраз.
@@ -140,11 +153,11 @@ PROMPT;
         array $timeline,
         $weakStudents
     ): string {
-        $subject  = $session->subject ?? 'не указан';
+        $subject = $session->subject ?? 'не указан';
         $duration = $session->duration_minutes ?? 0;
         $weakList = $weakStudents->map(fn ($s) => [
             'avg_score' => round($s->avg, 1),
-            'emotion'   => $s->dominant_emotion,
+            'emotion' => $s->dominant_emotion,
         ])->toArray();
 
         // Находим самую низкую минуту урока
@@ -165,7 +178,7 @@ PROMPT;
 Самая низкая точка урока: минута {$lowestMinute['minute']} — {$lowestMinute['avg_score']}%
 
 Студенты с низкой вовлечённостью (анонимизировано):
-PROMPT . json_encode($weakList, JSON_UNESCAPED_UNICODE) . <<<PROMPT
+PROMPT.json_encode($weakList, JSON_UNESCAPED_UNICODE).<<<'PROMPT'
 
 
 Верни ТОЛЬКО JSON в формате:
@@ -184,11 +197,12 @@ PROMPT;
     {
         try {
             $clean = preg_replace('/```json|```/', '', $content);
-            $data  = json_decode(trim($clean), true, flags: JSON_THROW_ON_ERROR);
+            $data = json_decode(trim($clean), true, flags: JSON_THROW_ON_ERROR);
+
             return [
-                'content'  => $data['content'] ?? $content,
+                'content' => $data['content'] ?? $content,
                 'insights' => $data['insights'] ?? [],
-                'actions'  => $data['actions'] ?? [],
+                'actions' => $data['actions'] ?? [],
             ];
         } catch (\Throwable) {
             return ['content' => $content, 'insights' => [], 'actions' => []];

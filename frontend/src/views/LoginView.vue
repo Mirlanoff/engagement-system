@@ -11,7 +11,7 @@
       <p class="login-sub">Мониторинг вовлечённости студентов</p>
       <div class="form-group">
         <label>Email</label>
-        <input v-model="email" type="email" placeholder="admin@school.kg" @keyup.enter="login"/>
+        <input v-model="email" type="email" placeholder="email@school.kg" @keyup.enter="login"/>
       </div>
       <div class="form-group">
         <label>Пароль</label>
@@ -21,9 +21,6 @@
       <button class="login-btn" @click="login" :disabled="loading">
         {{ loading ? 'Вход...' : 'Войти' }}
       </button>
-      <div class="login-hint">
-        <strong>Тест:</strong> admin@school.kg / password
-      </div>
     </div>
   </div>
 </template>
@@ -35,8 +32,8 @@ import { useAuthStore } from '@/stores/auth'
 
 const router    = useRouter()
 const authStore = useAuthStore()
-const email     = ref('admin@school.kg')
-const password  = ref('password')
+const email     = ref('')
+const password  = ref('')
 const error     = ref('')
 const loading   = ref(false)
 
@@ -73,6 +70,4 @@ input::placeholder { color:#475569; }
 .login-btn { width:100%; padding:11px; background:linear-gradient(135deg,#6366f1,#8b5cf6); border:none; border-radius:8px; color:white; font-size:14px; font-weight:600; cursor:pointer; transition:opacity 0.15s; margin-top:4px; font-family:inherit; }
 .login-btn:hover { opacity:0.9; }
 .login-btn:disabled { opacity:0.6; cursor:not-allowed; }
-.login-hint { margin-top:16px; padding:10px 14px; background:rgba(99,102,241,0.08); border:1px solid rgba(99,102,241,0.15); border-radius:8px; font-size:12px; color:#64748b; }
-.login-hint strong { color:#a5b4fc; }
 </style>

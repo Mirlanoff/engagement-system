@@ -3,6 +3,10 @@
 Система мониторинга вовлечённости студентов в реальном времени.  
 On-premise деплой на школьном сервере.
 
+## Production readiness
+
+Текущий статус: **MVP / pre-production**. Стек поднимается через Docker Compose и имеет базовую изоляцию сервисов, очереди, WebSocket, ML-service и мониторинг, но перед реальной школой нужно закрыть P0/P1 checklist ниже.
+
 ## Стек
 
 | Слой | Технологии |
@@ -44,6 +48,13 @@ nano .env  # заполни все REPLACE_WITH_... значения
 docker run --rm php:8.3-cli php -r "echo 'base64:'.base64_encode(random_bytes(32));"
 ```
 
+Перед production запуском:
+- `APP_ENV=production`, `APP_DEBUG=false`, `APP_URL=https://<домен или IP сервера>`
+- сгенерируй уникальные `APP_KEY`, `DB_PASSWORD`, `REDIS_PASSWORD`, `PUSHER_APP_SECRET`, `ML_SERVICE_SECRET`, `GRAFANA_PASSWORD`, `FLOWER_PASSWORD`
+- `SEED_DEMO_DATA=false` для реальной школы; `true` только для демо/стейджинга
+- `ML_EXPOSE_DOCS=false` в production
+- используй реальный TLS сертификат вместо self-signed из `scripts/manage.sh`, если сервер доступен по домену
+
 ### 4. Первый запуск
 
 ```bash
@@ -56,6 +67,12 @@ chmod +x scripts/manage.sh
 - Соберёт все Docker образы
 - Запустит БД и применит миграции
 - Поднимет все сервисы
+
+Для production запуска без dev override используй:
+
+```bash
+docker compose -f docker-compose.yml up -d
+```
 
 ### 5. Управление системой
 
@@ -75,9 +92,34 @@ chmod +x scripts/manage.sh
 |---|---|
 | Дашборд | https://localhost |
 | Grafana | https://localhost/grafana |
-| Flower (Celery) | http://localhost:5555 |
-| Prometheus | http://localhost:9090 |
-| FastAPI docs (dev) | http://localhost:8001/docs |
+| Flower (Celery, local only) | http://127.0.0.1:5556 |
+| Prometheus (local only) | http://127.0.0.1:9090 |
+| FastAPI docs (dev only) | http://localhost:8001/docs |
+
+## Production checklist
+
+### P0 — блокирует production
+
+- Заполнить `.env` реальными секретами и не коммитить его в git.
+- Убрать тестовые аккаунты/демо-данные: `SEED_DEMO_DATA=false`; создать реальных пользователей отдельной admin-командой или через защищённый seed.
+- Поставить реальный TLS сертификат и домен/IP в `APP_URL`.
+- Проверить физический доступ к RTSP камерам, согласия на обработку видео и сетевую сегментацию камер.
+- Подключить `CLAUDE_API_KEY`, если AI-рекомендации нужны в production; иначе отключить генерацию рекомендаций на уровне бизнес-процесса.
+- Настроить backup retention и внешнее копирование `./backups/` за пределы сервера.
+
+### P1 — нужно перед пилотом
+
+- Настроить Grafana dashboards/provisioning под реальные метрики.
+- Добавить CI для Laravel tests/Pint, Vue build и Docker Compose config validation.
+- Добавить smoke-тесты API: login, classrooms, session lifecycle, internal ML snapshots.
+- Настроить алерты Prometheus/Grafana по CPU/RAM/disk, Redis, PostgreSQL, ML latency и ошибкам очередей.
+- Проверить WebSocket broadcast на реальном домене через `/app`.
+
+### P2 — после пилота
+
+- Ротация и архивирование логов.
+- Регламент обновлений моделей ML и rollback.
+- Документация для школьного администратора: пользователи, камеры, бэкапы, восстановление.
 
 ## Структура проекта
 

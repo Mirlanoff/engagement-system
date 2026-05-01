@@ -7,13 +7,14 @@ from starlette.responses import JSONResponse
 
 from app.config import settings
 
-# Эти пути не требуют аутентификации
-EXEMPT_PATHS = {"/health", "/docs", "/openapi.json"}
+EXEMPT_PATHS = {"/health", "/metrics"}
 
 
 class InternalAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        if request.url.path in EXEMPT_PATHS:
+        if request.url.path in EXEMPT_PATHS or (
+            settings.expose_docs and request.url.path in {"/docs", "/openapi.json"}
+        ):
             return await call_next(request)
 
         signature = request.headers.get("X-Internal-Signature")

@@ -25,11 +25,11 @@ export const useEngagementStore = defineStore('engagement', () => {
             broadcaster:       'pusher',
             key:               import.meta.env.VITE_PUSHER_APP_KEY || 'engagement_key',
             wsHost:            window.location.hostname,
-            wsPort:            6001,
-            wssPort:           6001,
-            forceTLS:          false,
+            wsPort:            Number(import.meta.env.VITE_PUSHER_WS_PORT || 80),
+            wssPort:           Number(import.meta.env.VITE_PUSHER_WSS_PORT || 443),
+            forceTLS:          window.location.protocol === 'https:',
             disableStats:      true,
-            cluster:           'mt1',          // ← обязательный параметр
+            cluster:           'mt1',
             enabledTransports: ['ws', 'wss'],
           })
 

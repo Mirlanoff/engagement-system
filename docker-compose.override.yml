@@ -19,12 +19,36 @@ services:
     ports:
       - "9000:9000"  # прямой доступ к PHP-FPM для отладки
 
+  horizon:
+    volumes:
+      - ./backend:/var/www/html
+
+  scheduler:
+    volumes:
+      - ./backend:/var/www/html
+
   ml-service:
     environment:
       LOG_LEVEL: DEBUG
+      EXPOSE_DOCS: "true"
       FRAME_INTERVAL_SECONDS: "10"  # реже захватывать кадры
+    volumes:
+      - ./ml-service:/app:cached
     ports:
       - "8001:8001"  # прямой доступ к FastAPI docs
+
+  celery-worker:
+    volumes:
+      - ./ml-service:/app:cached
+
+  celery-beat:
+    volumes:
+      - ./ml-service:/app:cached
+
+  vue-builder:
+    volumes:
+      - ./frontend:/app
+      - ./docker/nginx/html:/app/dist
 
   postgres:
     ports:

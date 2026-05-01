@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import hmac
 import json
+import os
 import random
 import time
 import uuid
@@ -19,7 +20,7 @@ from datetime import datetime, timezone
 
 # ── Настройки ────────────────────────────────────────────────────
 API_URL       = "http://localhost"
-ML_SECRET     = "MlSecret2024"   # ML_SERVICE_SECRET из .env
+ML_SECRET     = os.environ["ML_SERVICE_SECRET"]
 INTERVAL_SEC  = 5                # каждые 5 секунд
 
 # 20 тестовых студентов (UUIDs берём из БД)

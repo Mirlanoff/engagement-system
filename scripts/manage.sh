@@ -28,7 +28,7 @@ check_env() {
 
     REQUIRED_VARS=(APP_KEY DB_PASSWORD REDIS_PASSWORD PUSHER_APP_SECRET ML_SERVICE_SECRET)
     for var in "${REQUIRED_VARS[@]}"; do
-        val=$(grep "^${var}=" .env | cut -d'=' -f2-)
+        val=$(grep -E "^${var}=" .env | tail -1 | cut -d'=' -f2- || true)
         if [ -z "$val" ] || [[ "$val" == *"REPLACE"* ]]; then
             log_error "Переменная ${var} не заполнена в .env"
         fi
@@ -45,7 +45,7 @@ gen_ssl() {
             -keyout docker/nginx/ssl/server.key \
             -out docker/nginx/ssl/server.crt \
             -subj "/C=KG/ST=Bishkek/O=School/CN=engagement-monitor" \
-            -addext "subjectAltName=IP:127.0.0.1,DNS:localhost"
+            -addext "subjectAltName=IP:127.0.0.1,DNS:localhost,DNS:$(hostname)"
         log_success "SSL сертификат создан (10 лет)"
     else
         log_info "SSL сертификат уже существует — пропускаю"
@@ -66,7 +66,11 @@ install() {
     sleep 5
 
     log_info "Запуск Laravel миграций..."
-    $COMPOSE run --rm laravel php artisan migrate --force --seed
+    $COMPOSE run --rm laravel php artisan migrate --force
+    if grep -q "^SEED_DEMO_DATA=true" .env; then
+        log_info "SEED_DEMO_DATA=true — загружаю демонстрационные данные..."
+        $COMPOSE run --rm laravel php artisan db:seed --force
+    fi
 
     log_info "Создание storage symlink..."
     $COMPOSE run --rm laravel php artisan storage:link
@@ -107,7 +111,7 @@ status() {
     log_info "Адреса:"
     echo "  Дашборд:   https://localhost"
     echo "  Grafana:   https://localhost/grafana"
-    echo "  Flower:    http://localhost:5555"
+    echo "  Flower:    http://127.0.0.1:5556"
     echo "  Prometheus: http://localhost:9090"
 }
 
@@ -145,6 +149,7 @@ logs() {
 
 # ── Бэкап БД ────────────────────────────────────────────────────
 backup() {
+    source .env
     BACKUP_DIR="./backups"
     TIMESTAMP=$(date +%Y%m%d_%H%M%S)
     FILENAME="${BACKUP_DIR}/engagement_db_${TIMESTAMP}.sql.gz"

@@ -15,9 +15,10 @@ class InternalApiMiddleware
     public function handle(Request $request, Closure $next): Response
     {
         $signature = $request->header('X-Internal-Signature');
-        $timestamp  = $request->header('X-Internal-Timestamp');
+        $timestamp = $request->header('X-Internal-Timestamp');
+        $secret = config('services.ml_service.secret');
 
-        if (!$signature || !$timestamp) {
+        if (! $secret || ! $signature || ! $timestamp) {
             return response()->json(['error' => 'Missing internal auth headers'], 401);
         }
 
@@ -29,11 +30,11 @@ class InternalApiMiddleware
         // Проверка HMAC подписи
         $expected = hash_hmac(
             'sha256',
-            $timestamp . $request->getContent(),
-            config('services.ml_service.secret')
+            $timestamp.$request->getContent(),
+            $secret
         );
 
-        if (!hash_equals($expected, $signature)) {
+        if (! hash_equals($expected, $signature)) {
             return response()->json(['error' => 'Invalid signature'], 401);
         }
 

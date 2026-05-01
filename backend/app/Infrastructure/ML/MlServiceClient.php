@@ -2,6 +2,7 @@
 
 namespace App\Infrastructure\ML;
 
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -12,20 +13,21 @@ use Illuminate\Support\Facades\Log;
 class MlServiceClient
 {
     private string $baseUrl;
+
     private string $secret;
 
     public function __construct()
     {
         $this->baseUrl = config('services.ml_service.url', 'http://ml-service:8001');
-        $this->secret  = config('services.ml_service.secret');
+        $this->secret = config('services.ml_service.secret');
     }
 
     public function startCapture(string $sessionId, string $classroomId, array $cameras): bool
     {
         return $this->post('/capture/start', [
-            'session_id'   => $sessionId,
+            'session_id' => $sessionId,
             'classroom_id' => $classroomId,
-            'cameras'      => $cameras,
+            'cameras' => $cameras,
         ]);
     }
 
@@ -48,9 +50,11 @@ class MlServiceClient
     {
         try {
             $response = $this->client()->get("{$this->baseUrl}/status");
+
             return $response->json() ?? [];
         } catch (\Throwable $e) {
             Log::warning('ML service status check failed', ['error' => $e->getMessage()]);
+
             return ['status' => 'unavailable'];
         }
     }
@@ -59,25 +63,32 @@ class MlServiceClient
 
     private function post(string $path, array $data): bool
     {
+        if (! $this->secret) {
+            Log::error('ML service secret is not configured');
+
+            return false;
+        }
+
         try {
-            $body      = json_encode($data);
+            $body = json_encode($data);
             $timestamp = (string) time();
-            $signature = hash_hmac('sha256', $timestamp . $body, $this->secret);
+            $signature = hash_hmac('sha256', $timestamp.$body, $this->secret);
 
             $response = Http::withHeaders([
-                'Content-Type'           => 'application/json',
-                'X-Internal-Signature'   => $signature,
-                'X-Internal-Timestamp'   => $timestamp,
+                'Content-Type' => 'application/json',
+                'X-Internal-Signature' => $signature,
+                'X-Internal-Timestamp' => $timestamp,
             ])
-            ->timeout(10)
-            ->withBody($body, 'application/json')
-            ->post("{$this->baseUrl}{$path}");
+                ->timeout(10)
+                ->withBody($body, 'application/json')
+                ->post("{$this->baseUrl}{$path}");
 
             if ($response->failed()) {
                 Log::warning("ML service request failed: {$path}", [
                     'status' => $response->status(),
-                    'body'   => $response->body(),
+                    'body' => $response->body(),
                 ]);
+
                 return false;
             }
 
@@ -87,12 +98,17 @@ class MlServiceClient
             Log::error("ML service communication error: {$path}", [
                 'error' => $e->getMessage(),
             ]);
+
             return false;
         }
     }
 
-    private function client(): \Illuminate\Http\Client\PendingRequest
+    private function client(): PendingRequest
     {
+        if (! $this->secret) {
+            throw new \RuntimeException('ML service secret is not configured');
+        }
+
         $timestamp = (string) time();
         $signature = hash_hmac('sha256', $timestamp, $this->secret);
 

@@ -39,6 +39,7 @@ x-laravel-env: &laravel-env
   CACHE_DRIVER: redis
   SESSION_DRIVER: redis
   QUEUE_CONNECTION: redis
+  BROADCAST_CONNECTION: pusher
   BROADCAST_DRIVER: pusher
   PUSHER_APP_ID: ${PUSHER_APP_ID:-engagement_app}
   PUSHER_APP_KEY: ${PUSHER_APP_KEY:-engagement_key}
@@ -60,13 +61,18 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
+      - "443:443"
     volumes:
       - ./docker/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./docker/nginx/ssl:/etc/nginx/ssl:ro
+      - ./docker/nginx/html:/usr/share/nginx/html:ro
       - storage_data:/var/www/html/storage/app/public:ro
     depends_on:
       - laravel
+      - grafana
     networks:
       - engagement_net
+      - monitoring_net
     logging:
       driver: "json-file"
       options:
@@ -85,7 +91,6 @@ services:
       <<: *laravel-env
     volumes:
       - storage_data:/var/www/html/storage
-      - ./backend:/var/www/html:cached
     depends_on:
       postgres:
         condition: service_healthy
@@ -118,7 +123,6 @@ services:
       <<: *laravel-env
     volumes:
       - storage_data:/var/www/html/storage
-      - ./backend:/var/www/html:cached
     depends_on:
       laravel:
         condition: service_healthy
@@ -147,7 +151,6 @@ services:
       <<: *laravel-env
     volumes:
       - storage_data:/var/www/html/storage
-      - ./backend:/var/www/html:cached
     depends_on:
       laravel:
         condition: service_healthy
@@ -161,15 +164,11 @@ services:
       dockerfile: Dockerfile
       target: builder
     container_name: engage_vue_builder
-    volumes:
-      - ./frontend:/app
-      - ./docker/nginx/html:/app/dist
     environment:
       VITE_API_URL: ${APP_URL:-https://localhost}/api
       VITE_PUSHER_APP_KEY: ${PUSHER_APP_KEY:-engagement_key}
-      VITE_PUSHER_HOST: ${APP_URL:-localhost}
-      VITE_PUSHER_PORT: 443
-      VITE_PUSHER_SCHEME: wss
+      VITE_PUSHER_WS_PORT: 80
+      VITE_PUSHER_WSS_PORT: 443
     profiles:
       - build
     networks:
@@ -191,10 +190,10 @@ services:
       FRAME_INTERVAL_SECONDS: ${FRAME_INTERVAL:-5}
       MAX_WORKERS: ${ML_MAX_WORKERS:-4}
       MODEL_BACKEND: ${ML_MODEL_BACKEND:-opencv}  # opencv | mediapipe | deepface
+      EXPOSE_DOCS: ${ML_EXPOSE_DOCS:-false}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     volumes:
       - ml_models_cache:/app/models_cache
-      - ./ml-service:/app:cached
     depends_on:
       redis:
         condition: service_healthy
@@ -233,7 +232,6 @@ services:
       CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/2
     volumes:
       - ml_models_cache:/app/models_cache
-      - ./ml-service:/app:cached
     depends_on:
       redis:
         condition: service_healthy
@@ -261,8 +259,6 @@ services:
     environment:
       CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/2
       CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/2
-    volumes:
-      - ./ml-service:/app:cached
     depends_on:
       redis:
         condition: service_healthy
@@ -383,6 +379,46 @@ services:
       - monitoring_net
     ports:
       - "127.0.0.1:9090:9090"
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: engage_postgres_exporter
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: postgresql://${DB_USERNAME:-engage_user}:${DB_PASSWORD}@postgres:5432/${DB_DATABASE:-engagement_db}?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - monitoring_net
+
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: engage_redis_exporter
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: redis://redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - monitoring_net
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: engage_node_exporter
+    restart: unless-stopped
+    command:
+      - "--path.rootfs=/host"
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    networks:
+      - monitoring_net
 
   # ── 14. GRAFANA — визуализация метрик ───────────────────────
   grafana:
