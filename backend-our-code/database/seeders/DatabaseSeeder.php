@@ -11,6 +11,15 @@ class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
+        $seedDemoData = filter_var(
+            env('SEED_DEMO_DATA', env('APP_ENV', 'production') !== 'production'),
+            FILTER_VALIDATE_BOOLEAN
+        );
+
+        if (! $seedDemoData) {
+            return;
+        }
+
         // ── Школа ────────────────────────────────────────────────
         $schoolId = Str::uuid();
         DB::table('schools')->insert([
@@ -29,6 +38,7 @@ class DatabaseSeeder extends Seeder
         $adminId = Str::uuid();
         $supervisorId = Str::uuid();
         $teacherId = Str::uuid();
+        $demoPassword = Hash::make(Str::random(32));
 
         DB::table('users')->insert([
             [
@@ -36,7 +46,7 @@ class DatabaseSeeder extends Seeder
                 'school_id'  => $schoolId,
                 'name'       => 'Администратор',
                 'email'      => 'admin@school.kg',
-                'password'   => Hash::make('password'),
+                'password'   => $demoPassword,
                 'role'       => 'admin',
                 'created_at' => now(),
                 'updated_at' => now(),
@@ -46,7 +56,7 @@ class DatabaseSeeder extends Seeder
                 'school_id'  => $schoolId,
                 'name'       => 'Супервайзер Айгуль',
                 'email'      => 'supervisor@school.kg',
-                'password'   => Hash::make('password'),
+                'password'   => $demoPassword,
                 'role'       => 'supervisor',
                 'created_at' => now(),
                 'updated_at' => now(),
@@ -56,7 +66,7 @@ class DatabaseSeeder extends Seeder
                 'school_id'  => $schoolId,
                 'name'       => 'Учитель Акмат',
                 'email'      => 'teacher@school.kg',
-                'password'   => Hash::make('password'),
+                'password'   => $demoPassword,
                 'role'       => 'teacher',
                 'created_at' => now(),
                 'updated_at' => now(),
