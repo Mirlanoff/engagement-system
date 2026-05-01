@@ -30,7 +30,7 @@ services:
   ml-service:
     environment:
       LOG_LEVEL: DEBUG
-      EXPOSE_DOCS: "true"
+      ML_EXPOSE_DOCS: "true"
       FRAME_INTERVAL_SECONDS: "10"  # реже захватывать кадры
     volumes:
       - ./ml-service:/app:cached

@@ -190,7 +190,7 @@ services:
       FRAME_INTERVAL_SECONDS: ${FRAME_INTERVAL:-5}
       MAX_WORKERS: ${ML_MAX_WORKERS:-4}
       MODEL_BACKEND: ${ML_MODEL_BACKEND:-opencv}  # opencv | mediapipe | deepface
-      EXPOSE_DOCS: ${ML_EXPOSE_DOCS:-false}
+      ML_EXPOSE_DOCS: ${ML_EXPOSE_DOCS:-false}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     volumes:
       - ml_models_cache:/app/models_cache
