@@ -1,3 +1,4 @@
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings
 from typing import Literal
 
@@ -6,7 +7,10 @@ class Settings(BaseSettings):
     # Laravel API
     laravel_api_url: str = "http://laravel/api/internal"
     laravel_api_secret: str
-    expose_docs: bool = False
+    expose_docs: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("ML_EXPOSE_DOCS", "EXPOSE_DOCS"),
+    )
 
     # Redis
     redis_url: str = "redis://redis:6379/1"
