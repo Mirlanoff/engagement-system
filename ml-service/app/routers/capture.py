@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 from typing import List, Optional
 import structlog
 
@@ -12,15 +12,24 @@ manager = CaptureManager()
 
 class CameraConfig(BaseModel):
     id: str
-    rtsp_url: str
+    rtsp_url: Optional[str] = None
+    source: Optional[str] = None
+    device_index: Optional[int] = None
     position: str = "front"
     is_active: bool = True
+
+    @model_validator(mode="after")
+    def validate_source(self):
+        if not self.rtsp_url and not self.source and self.device_index is None:
+            raise ValueError("Camera requires rtsp_url, source, or device_index")
+        return self
 
 
 class StartCaptureRequest(BaseModel):
     session_id: str
     classroom_id: str
     cameras: List[CameraConfig]
+    student_ids: List[str] = Field(default_factory=list)
 
 
 class SessionRequest(BaseModel):
@@ -34,6 +43,7 @@ async def start_capture(req: StartCaptureRequest):
             session_id=req.session_id,
             classroom_id=req.classroom_id,
             cameras=[c.model_dump() for c in req.cameras if c.is_active],
+            student_ids=req.student_ids,
         )
         logger.info("Capture started", session_id=req.session_id)
         return {"status": "started", "session_id": req.session_id}

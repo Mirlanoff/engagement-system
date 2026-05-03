@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\SessionController;
 use App\Http\Controllers\Api\V1\ClassroomController;
+use App\Http\Middleware\InternalApiMiddleware;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1/auth')->group(function () {
@@ -36,6 +37,7 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
 });
 
 // ML internal
-Route::prefix('internal')->group(function () {
+Route::prefix('internal')->middleware(InternalApiMiddleware::class)->group(function () {
     Route::post('snapshots', [SessionController::class, 'receiveSnapshots']);
+    Route::post('sessions/{sessionId}/camera-error', [SessionController::class, 'cameraError']);
 });

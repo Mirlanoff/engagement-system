@@ -20,12 +20,13 @@ class MlServiceClient
         $this->secret  = config('services.ml_service.secret');
     }
 
-    public function startCapture(string $sessionId, string $classroomId, array $cameras): bool
+    public function startCapture(string $sessionId, string $classroomId, array $cameras, array $studentIds): bool
     {
         return $this->post('/capture/start', [
             'session_id'   => $sessionId,
             'classroom_id' => $classroomId,
             'cameras'      => $cameras,
+            'student_ids'  => $studentIds,
         ]);
     }
 

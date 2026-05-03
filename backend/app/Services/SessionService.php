@@ -8,16 +8,26 @@ use App\Events\SessionStarted;
 use App\Events\SessionEnded;
 use App\Events\SessionPaused;
 use App\Events\SessionResumed;
+use App\Infrastructure\ML\MlServiceClient;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class SessionService
 {
+    public function __construct(
+        private readonly MlServiceClient $mlClient,
+    ) {}
+
     // ── Старт урока ─────────────────────────────────────────────
 
-    public function start(string $classroomId, string $teacherId, ?string $subject): LessonSession
+    public function start(
+        string $classroomId,
+        string $teacherId,
+        ?string $subject,
+        ?string $cameraSource = null,
+    ): LessonSession
     {
-        return DB::transaction(function () use ($classroomId, $teacherId, $subject) {
+        return DB::transaction(function () use ($classroomId, $teacherId, $subject, $cameraSource) {
 
             // Закрываем незавершённые сессии в этом классе
             LessonSession::where('classroom_id', $classroomId)
@@ -39,6 +49,17 @@ class SessionService
             ]);
 
             $session->load(['classroom', 'teacher']);
+
+            $studentIds = $classroom->students()
+                ->orderByPivot('seat_number')
+                ->pluck('students.id')
+                ->all();
+
+            $cameras = $this->resolveCameras($classroom->camera_config ?? [], $cameraSource);
+
+            if (!$this->mlClient->startCapture($session->id, $classroomId, $cameras, $studentIds)) {
+                Log::warning('ML capture start failed', ['session_id' => $session->id]);
+            }
 
             // Broadcast через WebSocket
             try {
@@ -66,6 +87,7 @@ class SessionService
         }
 
         $session->update(['status' => 'paused']);
+        $this->mlClient->pauseCapture($session->id);
 
         try {
             broadcast(new SessionPaused($session))->toOthers();
@@ -85,6 +107,7 @@ class SessionService
         }
 
         $session->update(['status' => 'active']);
+        $this->mlClient->resumeCapture($session->id);
 
         try {
             broadcast(new SessionResumed($session))->toOthers();
@@ -104,6 +127,7 @@ class SessionService
         }
 
         return DB::transaction(function () use ($session) {
+            $this->mlClient->stopCapture($session->id);
 
             // Считаем итоговую статистику из снэпшотов
             $stats = $this->calculateStats($session->id);
@@ -193,6 +217,10 @@ class SessionService
                 'head_roll'          => $s['head_roll'] ?? null,
                 'face_detected'      => $s['face_detected'] ?? true,
                 'face_confidence'    => $s['face_confidence'] ?? null,
+                'face_bbox_x'        => $s['face_bbox_x'] ?? null,
+                'face_bbox_y'        => $s['face_bbox_y'] ?? null,
+                'face_bbox_w'        => $s['face_bbox_w'] ?? null,
+                'face_bbox_h'        => $s['face_bbox_h'] ?? null,
                 'processing_time_ms' => $s['processing_time_ms'] ?? null,
                 'created_at'         => now(),
                 'updated_at'         => now(),
@@ -210,6 +238,20 @@ class SessionService
     }
 
     // ── Realtime broadcast ──────────────────────────────────────
+
+    private function resolveCameras(array $cameraConfig, ?string $cameraSource): array
+    {
+        if ($cameraSource !== null && trim($cameraSource) !== '') {
+            return [[
+                'id' => 'webcam_0',
+                'source' => trim($cameraSource),
+                'position' => 'front',
+                'is_active' => true,
+            ]];
+        }
+
+        return $cameraConfig;
+    }
 
     private function broadcastUpdate(string $sessionId, array $snapshots, float $classAvg): void
     {

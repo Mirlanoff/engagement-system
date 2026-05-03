@@ -20,6 +20,11 @@
           <label>Предмет (необязательно)</label>
           <input v-model="form.subject" placeholder="Математика, Физика..." />
         </div>
+        <div class="form-group">
+          <label>Веб-камера / источник видео</label>
+          <input v-model="form.camera_source" placeholder="webcam://0, /dev/video0 или rtsp://..." />
+          <small>Оставьте пустым, чтобы использовать камеры класса.</small>
+        </div>
         <p v-if="error" class="error">{{ error }}</p>
       </div>
 
@@ -40,18 +45,18 @@ import api, { sessions } from '@/api'
 const emit = defineEmits(['close', 'started'])
 
 const classrooms = ref([])
-const form       = ref({ classroom_id: '', subject: '' })
+const form       = ref({ classroom_id: '', subject: '', camera_source: 'webcam://0' })
 const loading    = ref(false)
 const error      = ref('')
 
 onMounted(async () => {
   try {
-    const { data } = await api.get('/v1/classrooms')
+    const { data } = await api.get('/classrooms')
     classrooms.value = data.data || []
   } catch {
     // fallback — попробуем получить из активных сессий
     try {
-      const { data } = await api.get('/v1/sessions?per_page=5')
+      const { data } = await api.get('/sessions?per_page=5')
       const seen = new Set()
       classrooms.value = (data.data || [])
         .filter(s => s.classroom_id && !seen.has(s.classroom_id) && seen.add(s.classroom_id))
@@ -89,6 +94,7 @@ label { font-size:12px; font-weight:500; color:#94a3b8; }
 select, input { padding:10px 14px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:8px; color:#f1f5f9; font-size:14px; font-family:inherit; }
 select:focus, input:focus { outline:none; border-color:#6366f1; }
 select option { background:#0d1220; }
+small { color:#64748b; font-size:11px; }
 .error { font-size:12px; color:#ef4444; margin:0; }
 .modal-footer { display:flex; gap:10px; padding:16px 24px; border-top:1px solid rgba(255,255,255,0.07); }
 .btn-cancel { flex:1; padding:10px; background:transparent; border:1px solid rgba(255,255,255,0.1); border-radius:8px; color:#94a3b8; cursor:pointer; font-size:13px; }

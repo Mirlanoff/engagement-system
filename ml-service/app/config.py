@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     celery_result_backend: str = "redis://redis:6379/2"
 
     # Захват кадров
-    frame_interval_seconds: int = 5
+    frame_interval_seconds: int = 10
     max_workers: int = 4
 
     # ML модели

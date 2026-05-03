@@ -16,6 +16,7 @@ class StartSessionRequest extends FormRequest
         return [
             'classroom_id' => 'required|uuid|exists:classrooms,id',
             'subject'      => 'nullable|string|max:255',
+            'camera_source'=> 'nullable|string|max:255',
         ];
     }
 

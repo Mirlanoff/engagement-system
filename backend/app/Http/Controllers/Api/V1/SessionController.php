@@ -10,6 +10,7 @@ use App\Services\SessionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class SessionController extends Controller
 {
@@ -58,6 +59,7 @@ class SessionController extends Controller
             classroomId: $request->classroom_id,
             teacherId:   $request->user()->id,
             subject:     $request->subject,
+            cameraSource: $request->camera_source,
         );
 
         return response()->json([
@@ -182,13 +184,44 @@ class SessionController extends Controller
             'snapshots.*.camera_id'        => 'required|string',
             'snapshots.*.captured_at'      => 'required|date',
             'snapshots.*.engagement_score' => 'required|numeric|min:0|max:100',
+            'snapshots.*.gaze_score'       => 'nullable|numeric|min:0|max:100',
+            'snapshots.*.emotion_score'    => 'nullable|numeric|min:0|max:100',
+            'snapshots.*.head_pose_score'  => 'nullable|numeric|min:0|max:100',
+            'snapshots.*.presence_score'   => 'nullable|numeric|min:0|max:100',
             'snapshots.*.emotion'          => 'nullable|string',
+            'snapshots.*.emotion_confidence' => 'nullable|numeric|min:0|max:1',
             'snapshots.*.gaze_yaw'         => 'nullable|numeric',
+            'snapshots.*.gaze_pitch'       => 'nullable|numeric',
+            'snapshots.*.head_yaw'         => 'nullable|numeric',
+            'snapshots.*.head_pitch'       => 'nullable|numeric',
+            'snapshots.*.head_roll'        => 'nullable|numeric',
             'snapshots.*.face_detected'    => 'nullable|boolean',
+            'snapshots.*.face_confidence'  => 'nullable|numeric|min:0|max:1',
+            'snapshots.*.face_bbox_x'      => 'nullable|integer',
+            'snapshots.*.face_bbox_y'      => 'nullable|integer',
+            'snapshots.*.face_bbox_w'      => 'nullable|integer',
+            'snapshots.*.face_bbox_h'      => 'nullable|integer',
+            'snapshots.*.processing_time_ms' => 'nullable|numeric|min:0',
         ]);
 
         $this->service->processSnapshots($validated['session_id'], $validated['snapshots']);
 
         return response()->json(['status' => 'accepted', 'count' => count($validated['snapshots'])], 202);
+    }
+
+    public function cameraError(Request $request, string $sessionId): JsonResponse
+    {
+        $validated = $request->validate([
+            'camera_id' => 'required|string|max:100',
+            'error'     => 'required|string|max:500',
+        ]);
+
+        Log::warning('Camera error reported by ML service', [
+            'session_id' => $sessionId,
+            'camera_id'  => $validated['camera_id'],
+            'error'      => $validated['error'],
+        ]);
+
+        return response()->json(['status' => 'received'], 202);
     }
 }

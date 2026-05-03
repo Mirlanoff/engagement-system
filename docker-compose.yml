@@ -188,7 +188,7 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
       CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/2
       CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/2
-      FRAME_INTERVAL_SECONDS: ${FRAME_INTERVAL:-5}
+      FRAME_INTERVAL_SECONDS: ${FRAME_INTERVAL:-10}
       MAX_WORKERS: ${ML_MAX_WORKERS:-4}
       MODEL_BACKEND: ${ML_MODEL_BACKEND:-opencv}  # opencv | mediapipe | deepface
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
