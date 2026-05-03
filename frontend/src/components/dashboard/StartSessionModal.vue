@@ -45,7 +45,7 @@ import api, { sessions } from '@/api'
 const emit = defineEmits(['close', 'started'])
 
 const classrooms = ref([])
-const form       = ref({ classroom_id: '', subject: '', camera_source: 'webcam://0' })
+const form       = ref({ classroom_id: '', subject: '', camera_source: '' })
 const loading    = ref(false)
 const error      = ref('')
 
