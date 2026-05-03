@@ -36,6 +36,8 @@ services:
       - ./ml-service:/app:cached
     ports:
       - "8001:8001"  # прямой доступ к FastAPI docs
+    devices:
+      - "${WEBCAM_DEVICE:-/dev/video0}:/dev/video0"
 
   celery-worker:
     volumes:

@@ -55,8 +55,10 @@ class CaptureSession:
         rtsp_url = camera["rtsp_url"]
         camera_id = camera["id"]
 
-        # Опции для стабильного RTSP
-        cap = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
+        source = int(rtsp_url) if str(rtsp_url).isdigit() else rtsp_url
+        backend = cv2.CAP_V4L2 if isinstance(source, int) else cv2.CAP_FFMPEG
+
+        cap = cv2.VideoCapture(source, backend)
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # минимальный буфер = меньше задержка
 
         if not cap.isOpened():
@@ -75,7 +77,7 @@ class CaptureSession:
             if not ret:
                 logger.warning("Frame read failed, reconnecting...", camera_id=camera_id)
                 time.sleep(2)
-                cap = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
+                cap = cv2.VideoCapture(source, backend)
                 continue
 
             # Отправляем кадр в Celery для анализа
@@ -85,6 +87,7 @@ class CaptureSession:
                     "classroom_id": self.classroom_id,
                     "camera_id":    camera_id,
                     "frame_bytes":  self._encode_frame(frame),
+                    "student_ids":  camera.get("student_ids", []),
                 }],
                 queue="frame_analysis",
             )

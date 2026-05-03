@@ -15,6 +15,7 @@ class CameraConfig(BaseModel):
     rtsp_url: str
     position: str = "front"
     is_active: bool = True
+    student_ids: List[str] = []
 
 
 class StartCaptureRequest(BaseModel):

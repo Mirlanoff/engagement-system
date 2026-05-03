@@ -24,15 +24,18 @@ class SessionEnded implements ShouldBroadcast
         ];
     }
 
-    public function broadcastAs(): string { return 'session.ended'; }
+    public function broadcastAs(): string
+    {
+        return 'session.ended';
+    }
 
     public function broadcastWith(): array
     {
         return [
-            'session_id'        => $this->session->id,
-            'avg_score'         => $this->session->avg_engagement_score,
-            'duration_minutes'  => $this->session->duration_minutes,
-            'ended_at'          => $this->session->ended_at?->toIso8601String(),
+            'session_id' => $this->session->id,
+            'avg_score' => $this->session->avg_engagement_score,
+            'duration_minutes' => $this->session->duration_minutes,
+            'ended_at' => $this->session->ended_at?->toIso8601String(),
         ];
     }
 }

@@ -2,17 +2,25 @@
 
 namespace App\Services;
 
-use App\Models\LessonSession;
-use App\Models\Classroom;
-use App\Events\SessionStarted;
+use App\Events\EngagementUpdated;
 use App\Events\SessionEnded;
 use App\Events\SessionPaused;
 use App\Events\SessionResumed;
+use App\Events\SessionStarted;
+use App\Infrastructure\ML\MlServiceClient;
+use App\Models\Classroom;
+use App\Models\LessonSession;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class SessionService
 {
+    public function __construct(
+        private readonly MlServiceClient $mlClient,
+    ) {}
+
     // ── Старт урока ─────────────────────────────────────────────
 
     public function start(string $classroomId, string $teacherId, ?string $subject): LessonSession
@@ -23,22 +31,28 @@ class SessionService
             LessonSession::where('classroom_id', $classroomId)
                 ->whereIn('status', ['active', 'paused'])
                 ->update([
-                    'status'   => 'cancelled',
+                    'status' => 'cancelled',
                     'ended_at' => now(),
                 ]);
 
             $classroom = Classroom::with('students')->findOrFail($classroomId);
 
             $session = LessonSession::create([
-                'classroom_id'   => $classroomId,
-                'teacher_id'     => $teacherId,
-                'subject'        => $subject,
-                'status'         => 'active',
-                'started_at'     => now(),
+                'classroom_id' => $classroomId,
+                'teacher_id' => $teacherId,
+                'subject' => $subject,
+                'status' => 'active',
+                'started_at' => now(),
                 'students_count' => $classroom->students()->count(),
             ]);
 
             $session->load(['classroom', 'teacher']);
+
+            $this->mlClient->startCapture(
+                sessionId: $session->id,
+                classroomId: $classroomId,
+                cameras: $this->cameraPayload($classroom),
+            );
 
             // Broadcast через WebSocket
             try {
@@ -48,9 +62,9 @@ class SessionService
             }
 
             Log::info('Session started', [
-                'session_id'   => $session->id,
+                'session_id' => $session->id,
                 'classroom_id' => $classroomId,
-                'teacher_id'   => $teacherId,
+                'teacher_id' => $teacherId,
             ]);
 
             return $session;
@@ -66,6 +80,7 @@ class SessionService
         }
 
         $session->update(['status' => 'paused']);
+        $this->mlClient->pauseCapture($session->id);
 
         try {
             broadcast(new SessionPaused($session))->toOthers();
@@ -85,6 +100,7 @@ class SessionService
         }
 
         $session->update(['status' => 'active']);
+        $this->mlClient->resumeCapture($session->id);
 
         try {
             broadcast(new SessionResumed($session))->toOthers();
@@ -99,7 +115,7 @@ class SessionService
 
     public function end(LessonSession $session): LessonSession
     {
-        if (!in_array($session->status, ['active', 'paused'])) {
+        if (! in_array($session->status, ['active', 'paused'])) {
             throw new \DomainException("Нельзя завершить — урок уже завершён (статус: {$session->status})");
         }
 
@@ -109,13 +125,14 @@ class SessionService
             $stats = $this->calculateStats($session->id);
 
             $session->update([
-                'status'               => 'completed',
-                'ended_at'             => now(),
+                'status' => 'completed',
+                'ended_at' => now(),
                 'avg_engagement_score' => $stats['avg'],
                 'min_engagement_score' => $stats['min'],
                 'max_engagement_score' => $stats['max'],
-                'total_snapshots'      => $stats['total'],
+                'total_snapshots' => $stats['total'],
             ]);
+            $this->mlClient->stopCapture($session->id);
 
             try {
                 broadcast(new SessionEnded($session))->toOthers();
@@ -124,8 +141,8 @@ class SessionService
             }
 
             Log::info('Session ended', [
-                'session_id'    => $session->id,
-                'avg_score'     => $stats['avg'],
+                'session_id' => $session->id,
+                'avg_score' => $stats['avg'],
                 'total_minutes' => $session->fresh()->duration_minutes,
             ]);
 
@@ -148,9 +165,9 @@ class SessionService
             ->first();
 
         return [
-            'avg'   => $stats?->avg ?? 0,
-            'min'   => $stats?->min ?? 0,
-            'max'   => $stats?->max ?? 0,
+            'avg' => $stats?->avg ?? 0,
+            'min' => $stats?->min ?? 0,
+            'max' => $stats?->max ?? 0,
             'total' => $stats?->total ?? 0,
         ];
     }
@@ -161,41 +178,42 @@ class SessionService
     {
         $session = LessonSession::find($sessionId);
 
-        if (!$session || $session->status !== 'active') {
+        if (! $session || $session->status !== 'active') {
             Log::warning('Snapshots received for non-active session', [
                 'session_id' => $sessionId,
-                'status'     => $session?->status,
+                'status' => $session?->status,
             ]);
+
             return;
         }
 
         DB::transaction(function () use ($session, $snapshots) {
 
             // Bulk insert снэпшотов
-            $records = array_map(fn($s) => [
-                'id'                 => \Illuminate\Support\Str::uuid(),
-                'session_id'         => $session->id,
-                'student_id'         => $s['student_id'],
-                'classroom_id'       => $session->classroom_id,
-                'camera_id'          => $s['camera_id'],
-                'captured_at'        => $s['captured_at'],
-                'engagement_score'   => $s['engagement_score'],
-                'gaze_score'         => $s['gaze_score'] ?? null,
-                'emotion_score'      => $s['emotion_score'] ?? null,
-                'head_pose_score'    => $s['head_pose_score'] ?? null,
-                'presence_score'     => $s['presence_score'] ?? null,
-                'emotion'            => $s['emotion'] ?? null,
+            $records = array_map(fn ($s) => [
+                'id' => Str::uuid(),
+                'session_id' => $session->id,
+                'student_id' => $s['student_id'],
+                'classroom_id' => $session->classroom_id,
+                'camera_id' => $s['camera_id'],
+                'captured_at' => $s['captured_at'],
+                'engagement_score' => $s['engagement_score'],
+                'gaze_score' => $s['gaze_score'] ?? null,
+                'emotion_score' => $s['emotion_score'] ?? null,
+                'head_pose_score' => $s['head_pose_score'] ?? null,
+                'presence_score' => $s['presence_score'] ?? null,
+                'emotion' => $s['emotion'] ?? null,
                 'emotion_confidence' => $s['emotion_confidence'] ?? null,
-                'gaze_yaw'           => $s['gaze_yaw'] ?? null,
-                'gaze_pitch'         => $s['gaze_pitch'] ?? null,
-                'head_yaw'           => $s['head_yaw'] ?? null,
-                'head_pitch'         => $s['head_pitch'] ?? null,
-                'head_roll'          => $s['head_roll'] ?? null,
-                'face_detected'      => $s['face_detected'] ?? true,
-                'face_confidence'    => $s['face_confidence'] ?? null,
+                'gaze_yaw' => $s['gaze_yaw'] ?? null,
+                'gaze_pitch' => $s['gaze_pitch'] ?? null,
+                'head_yaw' => $s['head_yaw'] ?? null,
+                'head_pitch' => $s['head_pitch'] ?? null,
+                'head_roll' => $s['head_roll'] ?? null,
+                'face_detected' => $s['face_detected'] ?? true,
+                'face_confidence' => $s['face_confidence'] ?? null,
                 'processing_time_ms' => $s['processing_time_ms'] ?? null,
-                'created_at'         => now(),
-                'updated_at'         => now(),
+                'created_at' => now(),
+                'updated_at' => now(),
             ], $snapshots);
 
             DB::table('engagement_snapshots')->insert($records);
@@ -209,6 +227,22 @@ class SessionService
         });
     }
 
+    private function cameraPayload(Classroom $classroom): array
+    {
+        $studentIds = $classroom->students()
+            ->orderByPivot('seat_number')
+            ->pluck('students.id')
+            ->all();
+
+        return collect($classroom->camera_config ?? [])
+            ->map(function (array $camera) use ($studentIds) {
+                $camera['student_ids'] = $studentIds;
+
+                return $camera;
+            })
+            ->all();
+    }
+
     // ── Realtime broadcast ──────────────────────────────────────
 
     private function broadcastUpdate(string $sessionId, array $snapshots, float $classAvg): void
@@ -216,23 +250,23 @@ class SessionService
         try {
             $payload = [
                 'session_id' => $sessionId,
-                'timestamp'  => now()->toIso8601String(),
-                'class_avg'  => round($classAvg, 2),
-                'students'   => array_map(fn($s) => [
-                    'student_id'    => $s['student_id'],
-                    'score'         => round($s['engagement_score'], 2),
-                    'emotion'       => $s['emotion'] ?? null,
+                'timestamp' => now()->toIso8601String(),
+                'class_avg' => round($classAvg, 2),
+                'students' => array_map(fn ($s) => [
+                    'student_id' => $s['student_id'],
+                    'score' => round($s['engagement_score'], 2),
+                    'emotion' => $s['emotion'] ?? null,
                     'face_detected' => $s['face_detected'] ?? true,
                     'gaze_on_board' => abs($s['gaze_yaw'] ?? 999) < 25,
-                    'level'         => match(true) {
+                    'level' => match (true) {
                         $s['engagement_score'] >= 75 => 'high',
                         $s['engagement_score'] >= 50 => 'medium',
-                        default                       => 'low',
+                        default => 'low',
                     },
                 ], $snapshots),
             ];
 
-            broadcast(new \App\Events\EngagementUpdated($sessionId, $payload));
+            broadcast(new EngagementUpdated($sessionId, $payload));
 
         } catch (\Throwable $e) {
             Log::warning('EngagementUpdated broadcast failed', ['error' => $e->getMessage()]);
@@ -247,24 +281,24 @@ class SessionService
 
         if ($classAvg < $threshold) {
             $cacheKey = "alert:low_class:{$session->id}";
-            if (!\Illuminate\Support\Facades\Cache::has($cacheKey)) {
-                \Illuminate\Support\Facades\Cache::put($cacheKey, true, now()->addMinutes(2));
+            if (! Cache::has($cacheKey)) {
+                Cache::put($cacheKey, true, now()->addMinutes(2));
 
                 DB::table('engagement_alerts')->insert([
-                    'id'              => \Illuminate\Support\Str::uuid(),
-                    'session_id'      => $session->id,
-                    'classroom_id'    => $session->classroom_id,
-                    'student_id'      => null,
-                    'type'            => 'low_class_engagement',
-                    'severity'        => $classAvg < 30 ? 'critical' : 'warning',
-                    'trigger_score'   => round($classAvg, 2),
+                    'id' => Str::uuid(),
+                    'session_id' => $session->id,
+                    'classroom_id' => $session->classroom_id,
+                    'student_id' => null,
+                    'type' => 'low_class_engagement',
+                    'severity' => $classAvg < 30 ? 'critical' : 'warning',
+                    'trigger_score' => round($classAvg, 2),
                     'threshold_score' => $threshold,
-                    'message'         => "Вовлечённость класса упала до " . round($classAvg) . "%",
-                    'context'         => json_encode([]),
+                    'message' => 'Вовлечённость класса упала до '.round($classAvg).'%',
+                    'context' => json_encode([]),
                     'is_acknowledged' => false,
-                    'triggered_at'    => now(),
-                    'created_at'      => now(),
-                    'updated_at'      => now(),
+                    'triggered_at' => now(),
+                    'created_at' => now(),
+                    'updated_at' => now(),
                 ]);
             }
         }

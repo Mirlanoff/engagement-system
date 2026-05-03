@@ -20,7 +20,10 @@ class SessionResumed implements ShouldBroadcast
         return [new PresenceChannel("session.{$this->session->id}")];
     }
 
-    public function broadcastAs(): string { return 'session.resumed'; }
+    public function broadcastAs(): string
+    {
+        return 'session.resumed';
+    }
 
     public function broadcastWith(): array
     {

@@ -14,7 +14,7 @@ class EngagementUpdated implements ShouldBroadcast
 
     public function __construct(
         public string $sessionId,
-        public array  $payload,
+        public array $payload,
     ) {}
 
     public function broadcastOn(): array
@@ -22,7 +22,10 @@ class EngagementUpdated implements ShouldBroadcast
         return [new PresenceChannel("session.{$this->sessionId}")];
     }
 
-    public function broadcastAs(): string { return 'engagement.update'; }
+    public function broadcastAs(): string
+    {
+        return 'engagement.update';
+    }
 
     public function broadcastWith(): array
     {

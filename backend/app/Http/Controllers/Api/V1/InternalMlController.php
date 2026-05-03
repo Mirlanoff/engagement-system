@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers\Api\V1;
 
-use App\Domain\Session\Services\SessionService;
 use App\Http\Controllers\Controller;
+use App\Services\SessionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -58,7 +58,7 @@ class InternalMlController extends Controller
             'snapshots.*.processing_time_ms' => 'nullable|numeric|min:0',
         ]);
 
-        $this->sessionService->processIncomingSnapshots(
+        $this->sessionService->processSnapshots(
             $validated['session_id'],
             $validated['snapshots']
         );

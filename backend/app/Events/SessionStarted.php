@@ -22,17 +22,20 @@ class SessionStarted implements ShouldBroadcast
         ];
     }
 
-    public function broadcastAs(): string { return 'session.started'; }
+    public function broadcastAs(): string
+    {
+        return 'session.started';
+    }
 
     public function broadcastWith(): array
     {
         return [
-            'session_id'     => $this->session->id,
-            'classroom_id'   => $this->session->classroom_id,
+            'session_id' => $this->session->id,
+            'classroom_id' => $this->session->classroom_id,
             'classroom_name' => $this->session->classroom?->name,
-            'subject'        => $this->session->subject,
-            'teacher'        => $this->session->teacher?->name,
-            'started_at'     => $this->session->started_at?->toIso8601String(),
+            'subject' => $this->session->subject,
+            'teacher' => $this->session->teacher?->name,
+            'started_at' => $this->session->started_at?->toIso8601String(),
             'students_count' => $this->session->students_count,
         ];
     }

@@ -20,7 +20,10 @@ class SessionPaused implements ShouldBroadcast
         return [new PresenceChannel("session.{$this->session->id}")];
     }
 
-    public function broadcastAs(): string { return 'session.paused'; }
+    public function broadcastAs(): string
+    {
+        return 'session.paused';
+    }
 
     public function broadcastWith(): array
     {

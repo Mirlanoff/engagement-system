@@ -16,6 +16,7 @@ return new class extends Migration
             $table->integer('capacity')->default(30);
             $table->json('camera_config')->default('[]');
             // [{"id":"cam_1","rtsp_url":"rtsp://...","position":"front","is_active":true}]
+            // For local USB webcam tests use rtsp_url "0" with WEBCAM_DEVICE=/dev/video0.
             $table->json('detection_zones')->default('[]');
             // Зоны ROI для детекции лиц на каждой камере
             $table->json('settings')->default('{}');
