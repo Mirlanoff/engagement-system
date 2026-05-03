@@ -46,7 +46,7 @@
       </header>
 
       <div class="content-body">
-        <LiveOverview    v-if="activeView === 'overview'"   :sessions="engagementStore.activeSessions" :scores="engagementStore.studentScores" :averages="engagementStore.classAverages" @select="selectSession"/>
+        <LiveOverview    v-if="activeView === 'overview'"   :sessions="engagementStore.activeSessions" :scores="engagementStore.studentScores" :averages="engagementStore.classAverages" @select="selectSession" @refresh="engagementStore.loadActiveSessions"/>
         <SessionDetail   v-else-if="activeView === 'session' && selectedSession" :session="selectedSession" :scores="engagementStore.studentScores[selectedSession.id] || {}" :avg="engagementStore.classAverages[selectedSession.id] || 0" @back="activeView = 'overview'"/>
         <AnalyticsView   v-else-if="activeView === 'analytics'"/>
         <AlertsView      v-else-if="activeView === 'alerts'"  :alerts="engagementStore.activeAlerts" @acknowledge="engagementStore.acknowledgeAlert"/>
