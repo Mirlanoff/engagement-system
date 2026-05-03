@@ -70,10 +70,7 @@ services:
     command: >
       sh -c "if [ ! -s /etc/nginx/ssl/server.crt ] || [ ! -s /etc/nginx/ssl/server.key ]; then
         apk add --no-cache openssl >/dev/null &&
-        openssl req -x509 -nodes -newkey rsa:2048 -days 365
-          -keyout /etc/nginx/ssl/server.key
-          -out /etc/nginx/ssl/server.crt
-          -subj '/CN=localhost';
+        openssl req -x509 -nodes -newkey rsa:2048 -days 365 -keyout /etc/nginx/ssl/server.key -out /etc/nginx/ssl/server.crt -subj '/CN=localhost';
       fi;
       nginx -g 'daemon off;'"
     depends_on:
