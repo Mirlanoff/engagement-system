@@ -266,6 +266,9 @@ services:
       --loglevel=info
       --scheduler celery.beat.PersistentScheduler
     environment:
+      LARAVEL_API_URL: http://laravel/api/internal
+      LARAVEL_API_SECRET: ${ML_SERVICE_SECRET}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
       CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/2
       CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/2
     depends_on:
@@ -286,6 +289,9 @@ services:
       --port=5555
       --basic_auth=${FLOWER_USER:-admin}:${FLOWER_PASSWORD}
     environment:
+      LARAVEL_API_URL: http://laravel/api/internal
+      LARAVEL_API_SECRET: ${ML_SERVICE_SECRET}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
       CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/2
     depends_on:
       - redis
