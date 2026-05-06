@@ -4,8 +4,6 @@
 #  НЕ КОММИТЬ .env, НЕ ИСПОЛЬЗОВАТЬ В ПРОДАКШЕНЕ
 # ================================================================
 
-version: "3.9"
-
 services:
 
   laravel:
@@ -25,6 +23,18 @@ services:
       FRAME_INTERVAL_SECONDS: "10"  # реже захватывать кадры
     ports:
       - "8001:8001"  # прямой доступ к FastAPI docs
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"   # понижено с 4, чтобы запускалось на 2-CPU dev-машинах
+          memory: 3g
+
+  celery-worker:
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"   # понижено с 4, чтобы запускалось на 2-CPU dev-машинах
+          memory: 2g
 
   postgres:
     ports:
@@ -51,5 +61,20 @@ services:
     ports:
       - "1025:1025"
       - "8025:8025"
+    networks:
+      - engagement_net
+
+  # RTSP-сервер для тестирования с веб-камерой ноутбука
+  # ffmpeg на хосте пушит поток с камеры → mediamtx → ml-service читает
+  rtsp-server:
+    image: bluenviron/mediamtx:latest
+    container_name: engage_rtsp
+    restart: unless-stopped
+    environment:
+      MTX_PROTOCOLS: tcp
+      MTX_RTSPADDRESS: ":8554"
+      MTX_LOGLEVEL: info
+    ports:
+      - "8554:8554"
     networks:
       - engagement_net

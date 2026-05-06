@@ -35,4 +35,9 @@ return [
         ],
     ],
 
+    'ml_service' => [
+        'url'    => env('ML_SERVICE_URL', 'http://ml-service:8001'),
+        'secret' => env('ML_SERVICE_SECRET', ''),
+    ],
+
 ];

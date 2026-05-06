@@ -8,11 +8,16 @@ use App\Events\SessionStarted;
 use App\Events\SessionEnded;
 use App\Events\SessionPaused;
 use App\Events\SessionResumed;
+use App\Infrastructure\ML\MlServiceClient;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class SessionService
 {
+    public function __construct(
+        private readonly MlServiceClient $mlClient,
+    ) {}
+
     // ── Старт урока ─────────────────────────────────────────────
 
     public function start(string $classroomId, string $teacherId, ?string $subject): LessonSession
@@ -39,6 +44,20 @@ class SessionService
             ]);
 
             $session->load(['classroom', 'teacher']);
+
+            // Команда ML-сервису начать захват по всем камерам класса
+            try {
+                $cameras = is_string($classroom->camera_config)
+                    ? json_decode($classroom->camera_config, true)
+                    : ($classroom->camera_config ?? []);
+                $this->mlClient->startCapture(
+                    sessionId: $session->id,
+                    classroomId: $classroomId,
+                    cameras: $cameras ?: [],
+                );
+            } catch (\Throwable $e) {
+                Log::warning('ML startCapture failed', ['error' => $e->getMessage()]);
+            }
 
             // Broadcast через WebSocket
             try {
