@@ -4,7 +4,9 @@ from typing import Literal
 
 class Settings(BaseSettings):
     # Laravel API
-    laravel_api_url: str = "http://laravel/api/internal"
+    # Внутри docker compose Laravel доступен только через nginx
+    # (контейнер `laravel` = PHP-FPM, он не отвечает по HTTP).
+    laravel_api_url: str = "http://nginx/api/internal"
     laravel_api_secret: str = "secret"
 
     # Redis
