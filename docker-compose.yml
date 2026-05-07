@@ -39,6 +39,9 @@ x-laravel-env: &laravel-env
   CACHE_DRIVER: redis
   SESSION_DRIVER: redis
   QUEUE_CONNECTION: redis
+  # Laravel 11+ читает BROADCAST_CONNECTION; BROADCAST_DRIVER оставлено
+  # для обратной совместимости со старыми .env.
+  BROADCAST_CONNECTION: pusher
   BROADCAST_DRIVER: pusher
   PUSHER_APP_ID: ${PUSHER_APP_ID:-engagement_app}
   PUSHER_APP_KEY: ${PUSHER_APP_KEY:-engagement_key}
@@ -46,6 +49,7 @@ x-laravel-env: &laravel-env
   PUSHER_HOST: soketi
   PUSHER_PORT: 6001
   PUSHER_SCHEME: http
+  PUSHER_APP_CLUSTER: mt1
   ML_SERVICE_URL: http://ml-service:8001
   ML_SERVICE_SECRET: ${ML_SERVICE_SECRET}
   CLAUDE_API_KEY: ${CLAUDE_API_KEY}

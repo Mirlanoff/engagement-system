@@ -31,6 +31,15 @@ export const useEngagementStore = defineStore('engagement', () => {
             disableStats:      true,
             cluster:           'mt1',          // ← обязательный параметр
             enabledTransports: ['ws', 'wss'],
+            // Подписка на private/presence каналы авторизуется через
+            // Laravel /api/v1/broadcasting/auth с Bearer-токеном Sanctum.
+            authEndpoint:      '/api/v1/broadcasting/auth',
+            auth: {
+              headers: {
+                Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
+                Accept:        'application/json',
+              },
+            },
           })
 
           echo.private(`school.${schoolId}`)
