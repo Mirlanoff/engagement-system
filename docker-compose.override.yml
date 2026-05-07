@@ -6,6 +6,16 @@
 
 services:
 
+  # nginx: монтируем собранный фронт + SSL-сертификаты, открываем 443
+  # для https://localhost. На localhost браузер всё равно отдаёт камеру
+  # и по http, но многие пользователи привыкли к https — поддерживаем оба.
+  nginx:
+    ports:
+      - "443:443"
+    volumes:
+      - ./docker/nginx/html:/usr/share/nginx/html:ro
+      - ./docker/nginx/ssl:/etc/nginx/ssl:ro
+
   laravel:
     build:
       target: production  # можно сменить на dev stage

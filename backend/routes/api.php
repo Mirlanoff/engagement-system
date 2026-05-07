@@ -27,6 +27,7 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
     Route::post('sessions/{session}/end',     [SessionController::class, 'end']);
     Route::get ('sessions/{session}/timeline',[SessionController::class, 'timeline']);
     Route::get ('sessions/{session}/students',[SessionController::class, 'students']);
+    Route::post('sessions/{session}/frames',  [SessionController::class, 'ingestFrame']);
 
     // Заглушки
     Route::get('alerts',             fn() => response()->json(['data' => []]));
