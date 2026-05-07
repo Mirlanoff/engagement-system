@@ -88,14 +88,28 @@ async def analyze_frame(req: AnalyzeFrameRequest):
     Сразу анализирует кадр и шлёт снэпшоты обратно в Laravel.
     """
     captured_at = datetime.now(timezone.utc).isoformat()
-    student_ids = req.student_ids or [req.session_id]
+
+    # Без реальных student_ids от Laravel пушить снэпшоты некуда —
+    # student_id обязан существовать в таблице students, иначе ловим
+    # foreign key violation. В этом случае ML всё равно проанализирует
+    # кадр (для метрик/диагностики), но в Laravel ничего не отправит.
+    if not req.student_ids:
+        logger.warning(
+            "analyze_frame received with empty student_ids — skipping push to Laravel",
+            session_id=req.session_id,
+        )
+        return {
+            "status": "no_students",
+            "session_id": req.session_id,
+            "snapshots": 0,
+        }
 
     try:
         analyses = analyzer.analyze_frame(
             frame_bytes_b64=req.frame_b64,
             session_id=req.session_id,
             camera_id=req.camera_id,
-            student_ids=student_ids,
+            student_ids=req.student_ids,
             captured_at=captured_at,
         )
     except Exception as exc:
@@ -105,7 +119,22 @@ async def analyze_frame(req: AnalyzeFrameRequest):
     if not analyses:
         return {"status": "no_faces", "session_id": req.session_id, "snapshots": 0}
 
-    snapshots = [_analysis_to_snapshot(a) for a in analyses]
+    # Дополнительная защита: на всякий случай отбрасываем все снэпшоты,
+    # у которых student_id не входит в переданный список — иначе Laravel
+    # сломается на foreign key.
+    valid_ids = set(req.student_ids)
+    snapshots = [
+        _analysis_to_snapshot(a)
+        for a in analyses
+        if a.student_id in valid_ids
+    ]
+    if not snapshots:
+        logger.warning(
+            "all analyses had unknown student_id — nothing to push",
+            session_id=req.session_id,
+        )
+        return {"status": "no_valid_students", "session_id": req.session_id, "snapshots": 0}
+
     pushed = _push_to_laravel(req.session_id, snapshots)
 
     return {

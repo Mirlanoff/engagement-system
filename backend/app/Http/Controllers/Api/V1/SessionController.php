@@ -204,6 +204,16 @@ class SessionController extends Controller
             ->take(50)
             ->all() ?? [];
 
+        // Без зарегистрированных студентов ML и Laravel пушить снэпшоты
+        // некуда (нарушение FK). Возвращаем 422 — фронт покажет, что
+        // в этом классе нет учеников.
+        if (empty($studentIds)) {
+            return response()->json([
+                'status'  => 'no_students',
+                'message' => 'В этом классе не зарегистрировано ни одного ученика — анализ невозможен.',
+            ], 422);
+        }
+
         // 1) Пробуем настоящий ML анализ
         $mlOk = $this->mlClient->analyzeFrame(
             sessionId: $session->id,
