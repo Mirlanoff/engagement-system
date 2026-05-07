@@ -46,13 +46,21 @@
       </header>
 
       <div class="content-body">
-        <LiveOverview    v-if="activeView === 'overview'"   :sessions="engagementStore.activeSessions" :scores="engagementStore.studentScores" :averages="engagementStore.classAverages" @select="selectSession"/>
+        <LiveOverview    v-if="activeView === 'overview'"   :sessions="engagementStore.activeSessions" :scores="engagementStore.studentScores" :averages="engagementStore.classAverages" @select="selectSession" @session-started="onSessionStarted"/>
         <SessionDetail   v-else-if="activeView === 'session' && selectedSession" :session="selectedSession" :scores="engagementStore.studentScores[selectedSession.id] || {}" :avg="engagementStore.classAverages[selectedSession.id] || 0" @back="activeView = 'overview'"/>
         <AnalyticsView   v-else-if="activeView === 'analytics'"/>
         <AlertsView      v-else-if="activeView === 'alerts'"  :alerts="engagementStore.activeAlerts" @acknowledge="engagementStore.acknowledgeAlert"/>
         <HistoryView     v-else-if="activeView === 'history'"/>
       </div>
     </main>
+
+    <!-- Веб-камера учителя — открывается автоматически после старта урока. -->
+    <WebcamCapture
+      :session="capturingSession"
+      :interval-seconds="captureIntervalSeconds"
+      @ended="onWebcamEnded"
+      @error="onWebcamError"
+    />
   </div>
 </template>
 
@@ -66,6 +74,7 @@ import SessionDetail from '@/components/dashboard/SessionDetail.vue'
 import AnalyticsView from '@/components/dashboard/AnalyticsView.vue'
 import AlertsView    from '@/components/dashboard/AlertsView.vue'
 import HistoryView   from '@/components/dashboard/HistoryView.vue'
+import WebcamCapture from '@/components/dashboard/WebcamCapture.vue'
 
 const router          = useRouter()
 const authStore       = useAuthStore()
@@ -74,6 +83,10 @@ const engagementStore = useEngagementStore()
 const activeView      = ref('overview')
 const selectedSession = ref(null)
 const currentTime     = ref('')
+
+// Урок, для которого сейчас открыта веб-камера учителя
+const capturingSession      = ref(null)
+const captureIntervalSeconds = 5
 
 const pageTitle = { overview: 'Активные уроки', session: 'Урок • Live', analytics: 'Аналитика', alerts: 'Алерты', history: 'История' }
 
@@ -93,7 +106,24 @@ function selectSession(session) {
   engagementStore.subscribeToSession(session.id)
 }
 
+function onSessionStarted(session) {
+  if (!session?.id) return
+  // Автоматически запускаем веб-камеру и анализ для этого урока
+  capturingSession.value = session
+  engagementStore.subscribeToSession(session.id)
+}
+
+function onWebcamEnded(session) {
+  capturingSession.value = null
+  engagementStore.loadActiveSessions()
+}
+
+function onWebcamError(err) {
+  console.warn('Webcam error:', err)
+}
+
 async function handleLogout() {
+  capturingSession.value = null
   engagementStore.disconnect()
   authStore.logout()
   router.push('/login')

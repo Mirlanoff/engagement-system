@@ -66,12 +66,13 @@ const props = defineProps({
   scores:   { type: Object, default: () => ({}) },
   averages: { type: Object, default: () => ({}) },
 })
-const emit = defineEmits(['select', 'refresh'])
+const emit = defineEmits(['select', 'refresh', 'session-started'])
 
 const showModal = ref(false)
 
 function onSessionStarted(session) {
   emit('refresh')
+  emit('session-started', session)
 }
 
 const totalStudents = computed(() =>

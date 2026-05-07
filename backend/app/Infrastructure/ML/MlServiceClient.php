@@ -55,6 +55,26 @@ class MlServiceClient
         }
     }
 
+    /**
+     * Push a single frame (base64 JPEG) from the teacher's browser webcam
+     * to the ML service for synchronous analysis.
+     */
+    public function analyzeFrame(
+        string $sessionId,
+        ?string $classroomId,
+        string $cameraId,
+        string $frameB64,
+        array $studentIds,
+    ): bool {
+        return $this->post('/capture/analyze-frame', [
+            'session_id'   => $sessionId,
+            'classroom_id' => $classroomId,
+            'camera_id'    => $cameraId,
+            'frame_b64'    => $frameB64,
+            'student_ids'  => array_values($studentIds),
+        ]);
+    }
+
     // ── Private ─────────────────────────────────────────────────
 
     private function post(string $path, array $data): bool

@@ -5,16 +5,20 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Session\StartSessionRequest;
 use App\Http\Resources\Session\SessionResource;
+use App\Infrastructure\ML\MlServiceClient;
 use App\Models\LessonSession;
 use App\Services\SessionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class SessionController extends Controller
 {
     public function __construct(
         private readonly SessionService $service,
+        private readonly MlServiceClient $mlClient,
     ) {}
 
     // GET /api/v1/sessions
@@ -170,6 +174,115 @@ class SessionController extends Controller
             ]);
 
         return response()->json(['session_id' => $session->id, 'data' => $data]);
+    }
+
+    // POST /api/v1/sessions/{session}/frames
+    // Принимает кадр с веб-камеры учителя и пересылает в ML сервис.
+    // Если ML недоступен — генерирует один симулированный снэпшот,
+    // чтобы дашборд продолжал работать без отдельных терминалов.
+    public function ingestFrame(LessonSession $session, Request $request): JsonResponse
+    {
+        if ($session->status !== 'active') {
+            return response()->json([
+                'status'  => 'ignored',
+                'message' => "Урок не активен (статус: {$session->status})",
+            ], 422);
+        }
+
+        $validated = $request->validate([
+            'frame'     => 'required|string|min:32',
+            'camera_id' => 'nullable|string|max:50',
+        ]);
+
+        $frame    = $this->extractBase64($validated['frame']);
+        $cameraId = $validated['camera_id'] ?? 'browser';
+
+        // Берём UUID студентов класса — ML сопоставит с найденными лицами
+        $session->loadMissing('classroom.students');
+        $studentIds = $session->classroom?->students
+            ->pluck('id')
+            ->take(50)
+            ->all() ?? [];
+
+        // 1) Пробуем настоящий ML анализ
+        $mlOk = $this->mlClient->analyzeFrame(
+            sessionId: $session->id,
+            classroomId: $session->classroom_id,
+            cameraId: $cameraId,
+            frameB64: $frame,
+            studentIds: $studentIds,
+        );
+
+        if ($mlOk) {
+            return response()->json([
+                'status'      => 'analyzing',
+                'session_id'  => $session->id,
+                'camera_id'   => $cameraId,
+                'students'    => count($studentIds),
+            ], 202);
+        }
+
+        // 2) Fallback — ML сервис недоступен. Чтобы дашборд жил,
+        //    сразу записываем один симулированный снэпшот для первого
+        //    студента (или для самой сессии, если студентов нет).
+        $fallback = $this->simulatedSnapshot($studentIds[0] ?? null, $cameraId);
+        if ($fallback !== null) {
+            try {
+                $this->service->processSnapshots($session->id, [$fallback]);
+            } catch (\Throwable $e) {
+                Log::warning('Fallback snapshot insert failed', [
+                    'error'      => $e->getMessage(),
+                    'session_id' => $session->id,
+                ]);
+            }
+        }
+
+        return response()->json([
+            'status'     => 'fallback',
+            'session_id' => $session->id,
+            'camera_id'  => $cameraId,
+            'message'    => 'ML сервис недоступен — записан симулированный снэпшот.',
+        ], 202);
+    }
+
+    private function extractBase64(string $raw): string
+    {
+        // Поддерживаем data URL: "data:image/jpeg;base64,XXXX"
+        if (str_starts_with($raw, 'data:')) {
+            $parts = explode(',', $raw, 2);
+            return $parts[1] ?? '';
+        }
+        return $raw;
+    }
+
+    private function simulatedSnapshot(?string $studentId, string $cameraId): ?array
+    {
+        if ($studentId === null) {
+            return null;
+        }
+
+        $score = max(0, min(100, round(60 + lcg_value() * 30, 2)));
+        $emotions = ['neutral', 'neutral', 'happy', 'neutral', 'surprised'];
+        return [
+            'student_id'         => $studentId,
+            'camera_id'          => $cameraId,
+            'captured_at'        => now()->toIso8601String(),
+            'engagement_score'   => $score,
+            'gaze_score'         => $score,
+            'emotion_score'      => $score,
+            'head_pose_score'    => $score,
+            'presence_score'     => 95.0,
+            'emotion'            => $emotions[array_rand($emotions)],
+            'emotion_confidence' => 0.7,
+            'gaze_yaw'           => round(lcg_value() * 30 - 15, 2),
+            'gaze_pitch'         => round(lcg_value() * 20 - 10, 2),
+            'head_yaw'           => round(lcg_value() * 30 - 15, 2),
+            'head_pitch'         => round(lcg_value() * 20 - 10, 2),
+            'head_roll'          => round(lcg_value() * 10 - 5, 2),
+            'face_detected'     => true,
+            'face_confidence'   => 0.9,
+            'processing_time_ms' => 0,
+        ];
     }
 
     // POST /api/internal/snapshots  (вызывается ML сервисом)

@@ -40,6 +40,9 @@ export const sessions = {
   resume: (id) => api.post(`/sessions/${id}/resume`),
   timeline: (id) => api.get(`/sessions/${id}/timeline`),
   students: (id) => api.get(`/sessions/${id}/students`),
+  // Передаём кадр с веб-камеры учителя в ML сервис
+  ingestFrame: (id, frameB64, cameraId = 'browser') =>
+    api.post(`/sessions/${id}/frames`, { frame: frameB64, camera_id: cameraId }),
 }
 
 export const analytics = {
