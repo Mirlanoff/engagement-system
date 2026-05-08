@@ -14,6 +14,11 @@ export const useEngagementStore = defineStore('engagement', () => {
   const criticalAlerts = computed(() => activeAlerts.value.filter(a => a.severity === 'critical' && !a.is_acknowledged))
 
   // ── WebSocket ─────────────────────────────────────────────────
+  // Soketi слушает 6001 внутри docker-сети; снаружи доступ идёт через
+  // nginx (`location /app { proxy_pass http://soketi:6001 }`), который
+  // терминирует SSL на 443. Поэтому правильный путь для браузера —
+  // wss://<тот же хост, что и страница>/app/<key>. Раньше тут было
+  // wss://localhost:6001 — это било в чистый HTTP-порт Soketi и падало.
   function connectWebSocket(schoolId) {
     try {
       // Динамический импорт чтобы не падал при ошибке
@@ -21,16 +26,33 @@ export const useEngagementStore = defineStore('engagement', () => {
         import('pusher-js').then(({ default: Pusher }) => {
           window.Pusher = Pusher
 
+          const isHttps = window.location.protocol === 'https:'
+
+          // VITE_PUSHER_HOST может случайно содержать полный URL
+          // (см. docker-compose.yml). Аккуратно вытаскиваем чистый хост.
+          const envHostRaw = import.meta.env.VITE_PUSHER_HOST || ''
+          const envHost = envHostRaw
+            .replace(/^https?:\/\//, '')
+            .replace(/^wss?:\/\//, '')
+            .replace(/\/.*$/, '')
+            .replace(/:\d+$/, '')
+          const wsHost = envHost || window.location.hostname
+
+          // Если порт явно не задан — идём через nginx (443 для https, 80 для http).
+          const envPort = Number(import.meta.env.VITE_PUSHER_PORT) || 0
+          const wsPort  = envPort || (isHttps ? 443 : 80)
+          const wssPort = envPort || 443
+
           echo = new Echo({
             broadcaster:       'pusher',
             key:               import.meta.env.VITE_PUSHER_APP_KEY || 'engagement_key',
-            wsHost:            window.location.hostname,
-            wsPort:            6001,
-            wssPort:           6001,
-            forceTLS:          false,
+            wsHost,
+            wsPort,
+            wssPort,
+            forceTLS:          isHttps,
             disableStats:      true,
-            cluster:           'mt1',          // ← обязательный параметр
-            enabledTransports: ['ws', 'wss'],
+            cluster:           'mt1',
+            enabledTransports: isHttps ? ['wss'] : ['ws', 'wss'],
           })
 
           echo.private(`school.${schoolId}`)
@@ -45,7 +67,7 @@ export const useEngagementStore = defineStore('engagement', () => {
             })
 
           isConnected.value = true
-          console.log('[WS] Connected to school channel', schoolId)
+          console.log('[WS] Connected to school channel', schoolId, 'via', `${isHttps ? 'wss' : 'ws'}://${wsHost}:${isHttps ? wssPort : wsPort}`)
         })
       })
     } catch (e) {

@@ -167,9 +167,12 @@ services:
     environment:
       VITE_API_URL: ${APP_URL:-https://localhost}/api
       VITE_PUSHER_APP_KEY: ${PUSHER_APP_KEY:-engagement_key}
-      VITE_PUSHER_HOST: ${APP_URL:-localhost}
-      VITE_PUSHER_PORT: 443
-      VITE_PUSHER_SCHEME: wss
+      # Пусто = фронт автоматически берёт window.location.hostname и идёт
+      # по правильному порту (443 для https, 80 для http) через nginx → soketi.
+      # Перебить можно явно: VITE_PUSHER_HOST=ws.example.com VITE_PUSHER_PORT=6001
+      VITE_PUSHER_HOST: ""
+      VITE_PUSHER_PORT: ""
+      VITE_PUSHER_SCHEME: ""
     profiles:
       - build
     networks:

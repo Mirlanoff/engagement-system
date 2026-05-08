@@ -99,6 +99,9 @@ class DatabaseSeeder extends Seeder
             'Тилек Молдобаев', 'Умут Акматова',
         ];
 
+        // Раскидываем студентов по всем классам, чтобы аналитика жила,
+        // в каком бы классе учитель ни запустил урок.
+        $perClass = max(1, intdiv(count($names), max(1, count($classroomIds))));
         foreach ($names as $i => $name) {
             $studentId = Str::uuid();
             DB::table('students')->insert([
@@ -113,11 +116,12 @@ class DatabaseSeeder extends Seeder
                 'updated_at'    => now(),
             ]);
 
+            $classroomIdx = min(intdiv($i, $perClass), count($classroomIds) - 1);
             DB::table('classroom_student')->insert([
                 'id'           => Str::uuid(),
-                'classroom_id' => $classroomIds[0],
+                'classroom_id' => $classroomIds[$classroomIdx],
                 'student_id'   => $studentId,
-                'seat_number'  => $i + 1,
+                'seat_number'  => ($i % $perClass) + 1,
                 'enrolled_at'  => now(),
             ]);
         }
