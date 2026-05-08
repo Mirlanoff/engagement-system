@@ -3,6 +3,9 @@
     <div class="webcam-header">
       <span class="status-dot" :class="statusClass"></span>
       <span class="webcam-title">{{ headerLabel }}</span>
+      <span v-if="detectedCount" class="faces-pill" :title="'Лиц обнаружено в кадре'">
+        {{ detectedCount }} 👤
+      </span>
       <button class="icon-btn" @click="minimized = !minimized" :title="minimized ? 'Развернуть' : 'Свернуть'">
         {{ minimized ? '▢' : '–' }}
       </button>
@@ -10,13 +13,17 @@
     </div>
 
     <div v-show="!minimized" class="webcam-body">
-      <video
-        ref="video"
-        class="webcam-video"
-        autoplay
-        playsinline
-        muted
-      ></video>
+      <div class="video-wrap">
+        <video
+          ref="video"
+          class="webcam-video"
+          autoplay
+          playsinline
+          muted
+          @loadedmetadata="onVideoReady"
+        ></video>
+        <canvas ref="overlay" class="webcam-overlay"></canvas>
+      </div>
       <canvas ref="canvas" class="webcam-canvas-hidden"></canvas>
 
       <div class="webcam-footer">
@@ -33,6 +40,7 @@
 <script setup>
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { sessions as sessionsApi } from '@/api'
+import { useEngagementStore } from '@/stores/engagement'
 
 const props = defineProps({
   session: { type: Object, default: null },
@@ -40,8 +48,11 @@ const props = defineProps({
 })
 const emit = defineEmits(['ended', 'error'])
 
+const engagementStore = useEngagementStore()
+
 const video    = ref(null)
 const canvas   = ref(null)
+const overlay  = ref(null)
 const minimized = ref(false)
 
 const stream     = ref(null)
@@ -51,6 +62,16 @@ const lastSentAt = ref('')
 const errorMessage = ref('')
 
 let sendTimer = null
+let frameW = 0
+let frameH = 0
+
+const detectedStudents = computed(() => {
+  const sid = props.session?.id
+  if (!sid) return []
+  const map = engagementStore.studentScores[sid] || {}
+  return Object.values(map).filter(s => s?.face_detected && s?.bbox)
+})
+const detectedCount = computed(() => detectedStudents.value.length)
 
 const headerLabel = computed(() => {
   const sub = props.session?.subject || props.session?.classroom_name || 'Урок'
@@ -78,7 +99,13 @@ watch(() => props.session?.id, async (newId, oldId) => {
   if (newId) await startCapture()
 }, { immediate: true })
 
-onBeforeUnmount(stopCapture)
+watch(detectedStudents, () => requestAnimationFrame(drawOverlay), { deep: true })
+watch(minimized, () => requestAnimationFrame(drawOverlay))
+
+onBeforeUnmount(() => {
+  stopCapture()
+  window.removeEventListener('resize', onResize)
+})
 
 async function startCapture() {
   errorMessage.value = ''
@@ -118,6 +145,125 @@ async function stopCapture() {
   }
   if (video.value) video.value.srcObject = null
   lastStatus.value = 'idle'
+  clearOverlay()
+}
+
+function onVideoReady() {
+  if (!video.value) return
+  frameW = video.value.videoWidth
+  frameH = video.value.videoHeight
+  syncOverlaySize()
+  window.addEventListener('resize', onResize)
+}
+
+function onResize() {
+  syncOverlaySize()
+  drawOverlay()
+}
+
+function syncOverlaySize() {
+  if (!overlay.value || !video.value) return
+  const rect = video.value.getBoundingClientRect()
+  if (!rect.width || !rect.height) return
+  const dpr = window.devicePixelRatio || 1
+  overlay.value.width  = Math.round(rect.width  * dpr)
+  overlay.value.height = Math.round(rect.height * dpr)
+  overlay.value.style.width  = rect.width  + 'px'
+  overlay.value.style.height = rect.height + 'px'
+}
+
+function clearOverlay() {
+  const cnv = overlay.value
+  if (!cnv) return
+  const ctx = cnv.getContext('2d')
+  ctx.clearRect(0, 0, cnv.width, cnv.height)
+}
+
+function drawOverlay() {
+  const cnv = overlay.value
+  if (!cnv || !video.value) return
+  syncOverlaySize()
+  const ctx = cnv.getContext('2d')
+  ctx.clearRect(0, 0, cnv.width, cnv.height)
+
+  const srcW = frameW || video.value.videoWidth || 640
+  const srcH = frameH || video.value.videoHeight || 480
+  if (!srcW || !srcH) return
+
+  const dispW = cnv.width
+  const dispH = cnv.height
+  const sx = dispW / srcW
+  const sy = dispH / srcH
+
+  for (const s of detectedStudents.value) {
+    const b = s.bbox
+    if (!b) continue
+    const x = b.x * sx
+    const y = b.y * sy
+    const w = b.w * sx
+    const h = b.h * sy
+    const color = colorForScore(s.score)
+
+    ctx.lineWidth   = Math.max(2, dispW / 200)
+    ctx.strokeStyle = color
+    ctx.shadowColor = color
+    ctx.shadowBlur  = 8
+    ctx.strokeRect(x, y, w, h)
+    ctx.shadowBlur  = 0
+
+    const labelParts = [`${Math.round(s.score)}%`]
+    if (s.emotion) labelParts.push(emotionLabel(s.emotion))
+    const label = labelParts.join(' • ')
+
+    const fontSize = Math.max(11, Math.round(dispW / 36))
+    ctx.font         = `600 ${fontSize}px system-ui, sans-serif`
+    const padX       = 6
+    const padY       = 4
+    const metrics    = ctx.measureText(label)
+    const textW      = metrics.width
+    const labelH     = fontSize + padY * 2
+    const labelX     = x
+    const labelY     = Math.max(0, y - labelH - 2)
+
+    ctx.fillStyle = color
+    roundRect(ctx, labelX, labelY, textW + padX * 2, labelH, 4)
+    ctx.fill()
+
+    ctx.fillStyle    = '#0d1220'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(label, labelX + padX, labelY + labelH / 2)
+  }
+}
+
+function colorForScore(score) {
+  if (typeof score !== 'number') return '#94a3b8'
+  if (score >= 75) return '#22c55e'
+  if (score >= 50) return '#f59e0b'
+  return '#ef4444'
+}
+
+function emotionLabel(emotion) {
+  const map = {
+    happy:    '😊 рад',
+    neutral:  '😐 нейтр.',
+    sad:      '😔 груст.',
+    angry:    '😠 злость',
+    surprise: '😲 удивл.',
+    fear:     '😨 страх',
+    disgust:  '🤢 отвр.',
+  }
+  return map[emotion] || emotion
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  const rr = Math.min(r, w / 2, h / 2)
+  ctx.beginPath()
+  ctx.moveTo(x + rr, y)
+  ctx.arcTo(x + w, y,     x + w, y + h, rr)
+  ctx.arcTo(x + w, y + h, x,     y + h, rr)
+  ctx.arcTo(x,     y + h, x,     y,     rr)
+  ctx.arcTo(x,     y,     x + w, y,     rr)
+  ctx.closePath()
 }
 
 async function sendFrame() {
@@ -228,15 +374,44 @@ function waitFor(predicate, timeoutMs = 1000) {
 }
 
 .webcam-body { padding: 0; }
-.webcam-video {
+.video-wrap {
+  position: relative;
   width: 100%;
-  display: block;
-  background: #000;
   aspect-ratio: 4/3;
+  background: #000;
+  overflow: hidden;
+}
+.webcam-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
   object-fit: cover;
   transform: scaleX(-1); /* зеркало для удобства */
 }
+.webcam-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  transform: scaleX(-1); /* совмещаем с зеркальным видео */
+}
 .webcam-canvas-hidden { display: none; }
+
+.faces-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(34,197,94,0.15);
+  color: #86efac;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
 
 .webcam-footer {
   padding: 8px 12px;

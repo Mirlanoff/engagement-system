@@ -227,22 +227,40 @@ class FaceAnalyzer:
     def _stub_results(
         self, student_ids: List[str], camera_id: str, captured_at: str
     ) -> List[FaceAnalysis]:
-        """Тестовые данные когда нет реальных моделей."""
+        """Тестовые данные когда нет реальных моделей.
+
+        Раскладываем «лица» по горизонтали в кадре 640×480, чтобы на дашборде
+        были видны рамки и эмоции и без полноценного ML.
+        """
         import random
         results = []
-        for sid in student_ids:
+        n        = max(1, len(student_ids))
+        frame_w  = 640
+        frame_h  = 480
+        face_w   = max(80, min(160, frame_w // (n + 1)))
+        face_h   = int(face_w * 1.25)
+        gap      = (frame_w - face_w * n) // (n + 1)
+        top      = (frame_h - face_h) // 2
+
+        for i, sid in enumerate(student_ids):
+            x = gap + i * (face_w + gap) + random.randint(-6, 6)
+            y = top + random.randint(-8, 8)
             a = FaceAnalysis(
                 student_id=sid,
                 camera_id=camera_id,
                 captured_at=captured_at,
                 face_detected=True,
                 face_confidence=0.9,
+                face_bbox_x=int(max(0, x)),
+                face_bbox_y=int(max(0, y)),
+                face_bbox_w=int(face_w),
+                face_bbox_h=int(face_h),
                 gaze_yaw=random.uniform(-15, 15),
                 gaze_pitch=random.uniform(-10, 10),
                 head_yaw=random.uniform(-20, 20),
                 head_pitch=random.uniform(-15, 15),
                 head_roll=random.uniform(-5, 5),
-                emotion=random.choice(["neutral", "happy", "neutral", "neutral"]),
+                emotion=random.choice(["neutral", "happy", "neutral", "surprise"]),
                 emotion_confidence=random.uniform(0.6, 0.95),
             )
             a = scorer.compute(a)

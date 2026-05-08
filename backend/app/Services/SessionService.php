@@ -212,6 +212,10 @@ class SessionService
                 'head_roll'          => $s['head_roll'] ?? null,
                 'face_detected'      => $s['face_detected'] ?? true,
                 'face_confidence'    => $s['face_confidence'] ?? null,
+                'face_bbox_x'        => $s['face_bbox_x'] ?? null,
+                'face_bbox_y'        => $s['face_bbox_y'] ?? null,
+                'face_bbox_w'        => $s['face_bbox_w'] ?? null,
+                'face_bbox_h'        => $s['face_bbox_h'] ?? null,
                 'processing_time_ms' => $s['processing_time_ms'] ?? null,
                 'created_at'         => now(),
                 'updated_at'         => now(),
@@ -255,6 +259,7 @@ class SessionService
                 'emotion'       => $s['emotion'] ?? null,
                 'face_detected' => $s['face_detected'] ?? true,
                 'gaze_on_board' => abs($s['gaze_yaw'] ?? 999) < 25,
+                'bbox'          => $this->bboxOrNull($s),
                 'level'         => match(true) {
                     $s['engagement_score'] >= 75 => 'high',
                     $s['engagement_score'] >= 50 => 'medium',
@@ -293,6 +298,26 @@ class SessionService
         } catch (\Throwable $e) {
             Log::warning('EngagementUpdated broadcast failed', ['error' => $e->getMessage()]);
         }
+    }
+
+    private function bboxOrNull(array $s): ?array
+    {
+        if (($s['face_detected'] ?? true) !== true) {
+            return null;
+        }
+        $x = $s['face_bbox_x'] ?? null;
+        $y = $s['face_bbox_y'] ?? null;
+        $w = $s['face_bbox_w'] ?? null;
+        $h = $s['face_bbox_h'] ?? null;
+        if ($x === null || $y === null || $w === null || $h === null) {
+            return null;
+        }
+        return [
+            'x' => (int) $x,
+            'y' => (int) $y,
+            'w' => (int) $w,
+            'h' => (int) $h,
+        ];
     }
 
     // ── Проверка алертов ────────────────────────────────────────
