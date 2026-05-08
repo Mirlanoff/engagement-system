@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\AlertController;
 use App\Http\Controllers\Api\V1\SessionController;
 use App\Http\Controllers\Api\V1\ClassroomController;
 use Illuminate\Support\Facades\Route;
@@ -29,9 +30,12 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
     Route::get ('sessions/{session}/students',[SessionController::class, 'students']);
     Route::post('sessions/{session}/frames',  [SessionController::class, 'ingestFrame']);
 
+    // Алерты
+    Route::get ('alerts',                    [AlertController::class, 'index']);
+    Route::get ('alerts/active',             [AlertController::class, 'active']);
+    Route::post('alerts/{alert}/acknowledge',[AlertController::class, 'acknowledge']);
+
     // Заглушки
-    Route::get('alerts',             fn() => response()->json(['data' => []]));
-    Route::get('alerts/active',      fn() => response()->json(['data' => []]));
     Route::get('recommendations',    fn() => response()->json(['data' => []]));
     Route::get('analytics/overview', fn() => response()->json(['data' => []]));
 });

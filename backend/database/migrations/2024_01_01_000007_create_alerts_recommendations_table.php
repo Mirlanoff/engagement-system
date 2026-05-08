@@ -52,7 +52,7 @@ return new class extends Migration
             // null = глобальные настройки школы
 
             $table->decimal('low_class_threshold', 5, 2)->default(50.00);
-            $table->decimal('low_student_threshold', 5, 2)->default(30.00);
+            $table->decimal('low_student_threshold', 5, 2)->default(40.00);
             $table->integer('absent_minutes_threshold')->default(3);
             $table->integer('prolonged_low_minutes')->default(10);
             $table->decimal('rapid_decline_delta', 5, 2)->default(25.00);

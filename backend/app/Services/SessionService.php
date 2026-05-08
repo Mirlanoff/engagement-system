@@ -9,13 +9,16 @@ use App\Events\SessionEnded;
 use App\Events\SessionPaused;
 use App\Events\SessionResumed;
 use App\Infrastructure\ML\MlServiceClient;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class SessionService
 {
     public function __construct(
         private readonly MlServiceClient $mlClient,
+        private readonly AlertService $alertService,
     ) {}
 
     // ── Старт урока ─────────────────────────────────────────────
@@ -54,6 +57,7 @@ class SessionService
                     sessionId: $session->id,
                     classroomId: $classroomId,
                     cameras: $cameras ?: [],
+                    studentIds: $classroom->students->pluck('id')->all(),
                 );
             } catch (\Throwable $e) {
                 Log::warning('ML startCapture failed', ['error' => $e->getMessage()]);
@@ -87,6 +91,12 @@ class SessionService
         $session->update(['status' => 'paused']);
 
         try {
+            $this->mlClient->pauseCapture($session->id);
+        } catch (\Throwable $e) {
+            Log::warning('ML pauseCapture failed', ['error' => $e->getMessage()]);
+        }
+
+        try {
             broadcast(new SessionPaused($session))->toOthers();
         } catch (\Throwable $e) {
             Log::warning('SessionPaused broadcast failed', ['error' => $e->getMessage()]);
@@ -104,6 +114,12 @@ class SessionService
         }
 
         $session->update(['status' => 'active']);
+
+        try {
+            $this->mlClient->resumeCapture($session->id);
+        } catch (\Throwable $e) {
+            Log::warning('ML resumeCapture failed', ['error' => $e->getMessage()]);
+        }
 
         try {
             broadcast(new SessionResumed($session))->toOthers();
@@ -135,6 +151,12 @@ class SessionService
                 'max_engagement_score' => $stats['max'],
                 'total_snapshots'      => $stats['total'],
             ]);
+
+            try {
+                $this->mlClient->stopCapture($session->id);
+            } catch (\Throwable $e) {
+                Log::warning('ML stopCapture failed', ['error' => $e->getMessage()]);
+            }
 
             try {
                 broadcast(new SessionEnded($session))->toOthers();
@@ -212,19 +234,21 @@ class SessionService
                 'head_roll'          => $s['head_roll'] ?? null,
                 'face_detected'      => $s['face_detected'] ?? true,
                 'face_confidence'    => $s['face_confidence'] ?? null,
+                'face_bbox_x'        => $s['face_bbox_x'] ?? null,
+                'face_bbox_y'        => $s['face_bbox_y'] ?? null,
+                'face_bbox_w'        => $s['face_bbox_w'] ?? null,
+                'face_bbox_h'        => $s['face_bbox_h'] ?? null,
                 'processing_time_ms' => $s['processing_time_ms'] ?? null,
                 'created_at'         => now(),
                 'updated_at'         => now(),
             ], $snapshots);
 
             DB::table('engagement_snapshots')->insert($records);
+            $this->updateMinuteAggregates($session, $snapshots);
 
-            // Broadcast realtime обновление
             $classAvg = collect($snapshots)->avg('engagement_score');
             $this->broadcastUpdate($session->id, $snapshots, $classAvg);
-
-            // Проверяем алерты
-            $this->checkAlerts($session, $snapshots, $classAvg);
+            $this->alertService->checkThresholds($session, $snapshots, $classAvg);
         });
     }
 
@@ -258,34 +282,58 @@ class SessionService
         }
     }
 
-    // ── Проверка алертов ────────────────────────────────────────
-
-    private function checkAlerts(LessonSession $session, array $snapshots, float $classAvg): void
+    private function updateMinuteAggregates(LessonSession $session, array $snapshots): void
     {
-        $threshold = 50.0;
+        $minutes = collect($snapshots)
+            ->pluck('captured_at')
+            ->filter()
+            ->map(fn ($capturedAt) => Carbon::parse($capturedAt)->startOfMinute()->toDateTimeString())
+            ->unique()
+            ->values();
 
-        if ($classAvg < $threshold) {
-            $cacheKey = "alert:low_class:{$session->id}";
-            if (!\Illuminate\Support\Facades\Cache::has($cacheKey)) {
-                \Illuminate\Support\Facades\Cache::put($cacheKey, true, now()->addMinutes(2));
+        foreach ($minutes as $minuteAt) {
+            $stats = DB::table('engagement_snapshots')
+                ->selectRaw('AVG(engagement_score) as avg_score')
+                ->selectRaw('MIN(engagement_score) as min_score')
+                ->selectRaw('MAX(engagement_score) as max_score')
+                ->selectRaw('STDDEV_POP(engagement_score) as std_dev')
+                ->selectRaw('COUNT(DISTINCT student_id) as students_detected')
+                ->selectRaw('COUNT(*) as snapshots_count')
+                ->where('session_id', $session->id)
+                ->where('captured_at', '>=', Carbon::parse($minuteAt))
+                ->where('captured_at', '<', Carbon::parse($minuteAt)->addMinute())
+                ->first();
 
-                DB::table('engagement_alerts')->insert([
-                    'id'              => \Illuminate\Support\Str::uuid(),
-                    'session_id'      => $session->id,
-                    'classroom_id'    => $session->classroom_id,
-                    'student_id'      => null,
-                    'type'            => 'low_class_engagement',
-                    'severity'        => $classAvg < 30 ? 'critical' : 'warning',
-                    'trigger_score'   => round($classAvg, 2),
-                    'threshold_score' => $threshold,
-                    'message'         => "Вовлечённость класса упала до " . round($classAvg) . "%",
-                    'context'         => json_encode([]),
-                    'is_acknowledged' => false,
-                    'triggered_at'    => now(),
-                    'created_at'      => now(),
-                    'updated_at'      => now(),
-                ]);
+            if ($stats === null || (int) $stats->snapshots_count === 0) {
+                continue;
             }
+
+            $keys = [
+                'session_id'       => $session->id,
+                'minute_at'        => $minuteAt,
+                'interval_minutes' => 1,
+            ];
+
+            $values = [
+                'classroom_id'       => $session->classroom_id,
+                'avg_score'          => round((float) $stats->avg_score, 2),
+                'min_score'          => round((float) $stats->min_score, 2),
+                'max_score'          => round((float) $stats->max_score, 2),
+                'std_dev'            => $stats->std_dev === null ? null : round((float) $stats->std_dev, 2),
+                'students_detected'  => (int) $stats->students_detected,
+                'snapshots_count'    => (int) $stats->snapshots_count,
+                'created_at'         => now(),
+                'updated_at'         => now(),
+            ];
+
+            $exists = DB::table('engagement_aggregates')->where($keys)->exists();
+            if ($exists) {
+                unset($values['created_at']);
+                DB::table('engagement_aggregates')->where($keys)->update($values);
+                continue;
+            }
+
+            DB::table('engagement_aggregates')->insert($keys + ['id' => Str::uuid()] + $values);
         }
     }
 }

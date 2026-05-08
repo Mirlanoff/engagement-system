@@ -14,6 +14,19 @@ export const useEngagementStore = defineStore('engagement', () => {
   const criticalAlerts = computed(() => activeAlerts.value.filter(a => a.severity === 'critical' && !a.is_acknowledged))
 
   // ── WebSocket ─────────────────────────────────────────────────
+  function upsertAlert(alert) {
+    const alertId = alert.alert_id || alert.id
+    if (!alertId) return
+
+    const existingIndex = activeAlerts.value.findIndex(a => (a.alert_id || a.id) === alertId)
+    if (existingIndex >= 0) {
+      activeAlerts.value[existingIndex] = { ...activeAlerts.value[existingIndex], ...alert, alert_id: alertId }
+      return
+    }
+
+    activeAlerts.value.unshift({ ...alert, alert_id: alertId })
+  }
+
   function connectWebSocket(schoolId) {
     try {
       // Динамический импорт чтобы не падал при ошибке
@@ -29,8 +42,12 @@ export const useEngagementStore = defineStore('engagement', () => {
             wssPort:           6001,
             forceTLS:          false,
             disableStats:      true,
-            cluster:           'mt1',          // ← обязательный параметр
+            cluster:           'mt1',
             enabledTransports: ['ws', 'wss'],
+            authEndpoint:      '/broadcasting/auth',
+            auth: {
+              headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` },
+            },
           })
 
           echo.private(`school.${schoolId}`)
@@ -40,8 +57,7 @@ export const useEngagementStore = defineStore('engagement', () => {
               }
             })
             .listen('.engagement.alert', (e) => {
-              activeAlerts.value.unshift(e)
-              if (e.severity === 'critical') playAlertSound()
+              upsertAlert(e)
             })
 
           isConnected.value = true
@@ -67,7 +83,7 @@ export const useEngagementStore = defineStore('engagement', () => {
         activeSessions.value = activeSessions.value.filter(s => s.id !== sessionId)
       })
       .listen('.engagement.alert', (e) => {
-        activeAlerts.value.unshift(e)
+        upsertAlert(e)
       })
   }
 
@@ -99,25 +115,11 @@ export const useEngagementStore = defineStore('engagement', () => {
 
   async function acknowledgeAlert(alertId) {
     try {
-      await alerts.acknowledge(alertId)
-      const a = activeAlerts.value.find(x => x.alert_id === alertId)
-      if (a) a.is_acknowledged = true
+      const { data } = await alerts.acknowledge(alertId)
+      upsertAlert(data.data || { alert_id: alertId, is_acknowledged: true })
     } catch (e) {
       console.warn('acknowledge failed:', e)
     }
-  }
-
-  function playAlertSound() {
-    try {
-      const ctx  = new AudioContext()
-      const osc  = ctx.createOscillator()
-      const gain = ctx.createGain()
-      osc.connect(gain); gain.connect(ctx.destination)
-      osc.frequency.setValueAtTime(880, ctx.currentTime)
-      gain.gain.setValueAtTime(0.3, ctx.currentTime)
-      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5)
-      osc.start(); osc.stop(ctx.currentTime + 0.5)
-    } catch {}
   }
 
   function disconnect() {

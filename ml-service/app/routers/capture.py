@@ -8,7 +8,7 @@ from typing import List, Optional
 import httpx
 import structlog
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.config import settings
 from app.ml.face_analyzer import FaceAnalyzer
@@ -31,6 +31,7 @@ class StartCaptureRequest(BaseModel):
     session_id: str
     classroom_id: str
     cameras: List[CameraConfig]
+    student_ids: List[str] = Field(default_factory=list)
 
 
 class SessionRequest(BaseModel):
@@ -43,7 +44,7 @@ class AnalyzeFrameRequest(BaseModel):
     classroom_id: Optional[str] = None
     camera_id: str = "browser"
     frame_b64: str
-    student_ids: List[str] = []
+    student_ids: List[str] = Field(default_factory=list)
 
 
 @router.post("/start")
@@ -53,6 +54,7 @@ async def start_capture(req: StartCaptureRequest):
             session_id=req.session_id,
             classroom_id=req.classroom_id,
             cameras=[c.model_dump() for c in req.cameras if c.is_active],
+            student_ids=req.student_ids,
         )
         logger.info("Capture started", session_id=req.session_id)
         return {"status": "started", "session_id": req.session_id}

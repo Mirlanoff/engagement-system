@@ -11,10 +11,11 @@ logger = structlog.get_logger()
 class CaptureSession:
     """Одна активная сессия захвата (один урок, один класс)."""
 
-    def __init__(self, session_id: str, classroom_id: str, cameras: List[dict]):
+    def __init__(self, session_id: str, classroom_id: str, cameras: List[dict], student_ids: List[str]):
         self.session_id   = session_id
         self.classroom_id = classroom_id
         self.cameras      = cameras
+        self.student_ids  = student_ids
         self.is_paused    = False
         self.is_running   = False
         self.frames_count = 0
@@ -85,6 +86,7 @@ class CaptureSession:
                     "classroom_id": self.classroom_id,
                     "camera_id":    camera_id,
                     "frame_bytes":  self._encode_frame(frame),
+                    "student_ids":  self.student_ids,
                 }],
                 queue="frame_analysis",
             )
@@ -143,12 +145,12 @@ class CaptureManager:
             cls._instance._total_frames = 0
         return cls._instance
 
-    async def start(self, session_id: str, classroom_id: str, cameras: List[dict]):
+    async def start(self, session_id: str, classroom_id: str, cameras: List[dict], student_ids: List[str]):
         if session_id in self._sessions:
             await self.stop(session_id)
 
         from app.config import settings
-        session = CaptureSession(session_id, classroom_id, cameras)
+        session = CaptureSession(session_id, classroom_id, cameras, student_ids)
         session.start(settings.frame_interval_seconds)
         self._sessions[session_id] = session
 

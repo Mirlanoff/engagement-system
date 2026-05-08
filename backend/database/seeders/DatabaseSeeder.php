@@ -128,7 +128,7 @@ class DatabaseSeeder extends Seeder
             'school_id'                      => $schoolId,
             'classroom_id'                   => null,
             'low_class_threshold'            => 50.00,
-            'low_student_threshold'          => 30.00,
+            'low_student_threshold'          => 40.00,
             'absent_minutes_threshold'       => 3,
             'prolonged_low_minutes'          => 10,
             'rapid_decline_delta'            => 25.00,
