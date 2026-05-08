@@ -178,7 +178,7 @@ class SessionController extends Controller
 
     // POST /api/v1/sessions/{session}/frames
     // Принимает кадр с веб-камеры учителя и пересылает в ML сервис.
-    // Если ML недоступен — генерирует один симулированный снэпшот,
+    // Если ML недоступен — генерирует симулированные снэпшоты,
     // чтобы дашборд продолжал работать без отдельных терминалов.
     public function ingestFrame(LessonSession $session, Request $request): JsonResponse
     {
@@ -197,12 +197,19 @@ class SessionController extends Controller
         $frame    = $this->extractBase64($validated['frame']);
         $cameraId = $validated['camera_id'] ?? 'browser';
 
-        // Берём UUID студентов класса — ML сопоставит с найденными лицами
+        // Берём UUID студентов класса — ML сопоставит с найденными лицами.
+        // Если в классе ещё никого нет (свежая установка без сидера) —
+        // авто-создаём анонимных «Студент 1..5», чтобы система анализировала
+        // тех, кого видит в кадре, без ручного заведения списка класса.
         $session->loadMissing('classroom.students');
         $studentIds = $session->classroom?->students
             ->pluck('id')
             ->take(50)
             ->all() ?? [];
+
+        if (empty($studentIds) && $session->classroom_id !== null) {
+            $studentIds = $this->ensureAnonymousStudents($session->classroom, 5);
+        }
 
         // 1) Пробуем настоящий ML анализ
         $mlOk = $this->mlClient->analyzeFrame(
@@ -223,12 +230,17 @@ class SessionController extends Controller
         }
 
         // 2) Fallback — ML сервис недоступен. Чтобы дашборд жил,
-        //    сразу записываем один симулированный снэпшот для первого
-        //    студента (или для самой сессии, если студентов нет).
-        $fallback = $this->simulatedSnapshot($studentIds[0] ?? null, $cameraId);
-        if ($fallback !== null) {
+        //    пишем по одному снэпшоту на каждого студента класса
+        //    (имитация того, что в кадре видны 1..N лиц).
+        $fallbackBatch = [];
+        foreach ($studentIds as $sid) {
+            $fallbackBatch[] = $this->simulatedSnapshot($sid, $cameraId);
+        }
+        $fallbackBatch = array_filter($fallbackBatch);
+
+        if (!empty($fallbackBatch)) {
             try {
-                $this->service->processSnapshots($session->id, [$fallback]);
+                $this->service->processSnapshots($session->id, $fallbackBatch);
             } catch (\Throwable $e) {
                 Log::warning('Fallback snapshot insert failed', [
                     'error'      => $e->getMessage(),
@@ -241,8 +253,53 @@ class SessionController extends Controller
             'status'     => 'fallback',
             'session_id' => $session->id,
             'camera_id'  => $cameraId,
-            'message'    => 'ML сервис недоступен — записан симулированный снэпшот.',
+            'students'   => count($studentIds),
+            'snapshots'  => count($fallbackBatch),
+            'message'    => 'ML сервис недоступен — записаны симулированные снэпшоты.',
         ], 202);
+    }
+
+    private function ensureAnonymousStudents(\App\Models\Classroom $classroom, int $count): array
+    {
+        $created = [];
+        $now     = now();
+        $offset  = (int) DB::table('classroom_student')
+            ->where('classroom_id', $classroom->id)
+            ->count();
+
+        for ($i = 1; $i <= $count; $i++) {
+            $studentId = (string) Str::uuid();
+            $studentNo = $offset + $i;
+
+            DB::table('students')->insert([
+                'id'               => $studentId,
+                'school_id'        => $classroom->school_id,
+                'name'             => "Студент {$studentNo}",
+                'student_code'     => sprintf('AUTO-%s-%03d', substr($classroom->id, 0, 8), $studentNo),
+                'consent_given'    => true,
+                'consent_given_at' => $now,
+                'is_active'        => true,
+                'created_at'       => $now,
+                'updated_at'       => $now,
+            ]);
+
+            DB::table('classroom_student')->insert([
+                'id'           => (string) Str::uuid(),
+                'classroom_id' => $classroom->id,
+                'student_id'   => $studentId,
+                'seat_number'  => $studentNo,
+                'enrolled_at'  => $now,
+            ]);
+
+            $created[] = $studentId;
+        }
+
+        Log::info('Auto-provisioned anonymous students for empty classroom', [
+            'classroom_id' => $classroom->id,
+            'count'        => count($created),
+        ]);
+
+        return $created;
     }
 
     private function extractBase64(string $raw): string

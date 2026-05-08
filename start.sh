@@ -7,6 +7,7 @@
 #    ./start.sh restart   # перезапустить
 #    ./start.sh status    # что сейчас работает
 #    ./start.sh logs      # логи всех сервисов
+#    ./start.sh rebuild   # пересобрать только фронтенд после правок
 # ================================================================
 
 set -euo pipefail
@@ -85,6 +86,18 @@ already_installed() {
   docker volume inspect engagement-system_postgres_data >/dev/null 2>&1
 }
 
+# ── 3b. Сборка фронтенда (vue-builder) ───────────────────────────
+# vue-builder лежит в profile=build, поэтому сам не поднимается с
+# `docker compose up`. Запускаем вручную, чтобы любые правки в
+# frontend/src/ попадали в раздаваемый bundle (иначе nginx отдаёт
+# старый кэш и в браузере висят прежние ошибки).
+build_frontend() {
+  info "Собираю фронтенд (vue-builder)..."
+  mkdir -p docker/nginx/html
+  docker compose --profile build run --rm vue-builder npm run build
+  ok "  фронт собран в docker/nginx/html"
+}
+
 # ── 4. Команды ───────────────────────────────────────────────────
 do_install() {
   info "Первый запуск — устанавливаю систему..."
@@ -102,6 +115,8 @@ do_install() {
   docker compose run --rm laravel php artisan migrate --force --seed
   docker compose run --rm laravel php artisan storage:link
 
+  build_frontend
+
   info "Запускаю все 14 сервисов (laravel, ml-service, celery-worker, celery-beat, flower, soketi, ...)..."
   docker compose up -d
 
@@ -114,12 +129,21 @@ do_start() {
     info "Запуск..."
     ensure_env
     ensure_ssl
+    build_frontend
     docker compose up -d
     ok "Все сервисы запущены"
     show_status
   else
     do_install
   fi
+}
+
+do_rebuild() {
+  ensure_env
+  build_frontend
+  info "Перезапускаю nginx, чтобы подхватил свежий bundle..."
+  docker compose restart nginx
+  ok "Готово. Освободи кэш браузера (Ctrl-Shift-R) и обнови страницу."
 }
 
 do_stop()    { info "Останавливаю все сервисы..."; docker compose stop; ok "Остановлено"; }
@@ -146,7 +170,8 @@ case "${1:-start}" in
   install)   do_install  ;;
   stop)      do_stop     ;;
   restart)   do_restart  ;;
+  rebuild)   do_rebuild  ;;
   status)    show_status ;;
   logs)      shift; do_logs "$@" ;;
-  *)         echo "Использование: $0 [start|stop|restart|status|logs|install]"; exit 1 ;;
+  *)         echo "Использование: $0 [start|stop|restart|rebuild|status|logs|install]"; exit 1 ;;
 esac
