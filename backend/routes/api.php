@@ -1,8 +1,9 @@
 <?php
 
+use App\Http\Controllers\Api\V1\AnalyticsController;
 use App\Http\Controllers\Api\V1\AuthController;
-use App\Http\Controllers\Api\V1\SessionController;
 use App\Http\Controllers\Api\V1\ClassroomController;
+use App\Http\Controllers\Api\V1\SessionController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1/auth')->group(function () {
@@ -29,11 +30,14 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
     Route::get ('sessions/{session}/students',[SessionController::class, 'students']);
     Route::post('sessions/{session}/frames',  [SessionController::class, 'ingestFrame']);
 
-    // Заглушки
-    Route::get('alerts',             fn() => response()->json(['data' => []]));
-    Route::get('alerts/active',      fn() => response()->json(['data' => []]));
-    Route::get('recommendations',    fn() => response()->json(['data' => []]));
-    Route::get('analytics/overview', fn() => response()->json(['data' => []]));
+    // Аналитика
+    Route::get('analytics/overview', [AnalyticsController::class, 'overview']);
+    Route::get('analytics/heatmap',  [AnalyticsController::class, 'heatmap']);
+
+    // Заглушки — пока не реализованы
+    Route::get('alerts',          fn() => response()->json(['data' => []]));
+    Route::get('alerts/active',   fn() => response()->json(['data' => []]));
+    Route::get('recommendations', fn() => response()->json(['data' => []]));
 });
 
 // ML internal

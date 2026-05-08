@@ -2,152 +2,210 @@
 
 namespace App\Http\Controllers\Api\V1;
 
-use App\Domain\Engagement\Services\EngagementAggregatorService;
 use App\Http\Controllers\Controller;
+use App\Models\LessonSession;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 
+/**
+ * Аналитика школы.
+ *
+ * Намеренно не зависит от устаревшего EngagementAggregatorService — берём
+ * данные напрямую из таблиц engagement_snapshots / lesson_sessions, чтобы
+ * дашборд работал даже без CV-сервиса (см. fallback-снэпшоты в
+ * SessionController::ingestFrame).
+ */
 class AnalyticsController extends Controller
 {
-    public function __construct(
-        private readonly EngagementAggregatorService $aggregator,
-    ) {
-        $this->middleware('auth:sanctum');
-        $this->middleware('role:admin,supervisor');
-    }
-
-    /**
-     * GET /api/v1/analytics/overview
-     * Общий обзор школы за период
-     */
+    // GET /api/v1/analytics/overview?period=today|week|month
     public function overview(Request $request): JsonResponse
     {
-        $request->validate([
-            'from' => 'required|date',
-            'to'   => 'required|date|after:from',
-        ]);
+        [$from, $to, $period] = $this->resolvePeriod($request);
+        $schoolId = $request->user()?->school_id;
 
-        $from = Carbon::parse($request->from)->startOfDay();
-        $to   = Carbon::parse($request->to)->endOfDay();
+        $sessionsQuery = LessonSession::query()
+            ->when($schoolId, function ($q) use ($schoolId) {
+                $q->whereHas('classroom', fn ($c) => $c->where('school_id', $schoolId));
+            })
+            ->whereBetween('started_at', [$from, $to]);
 
-        $classroomIds = $request->user()->school
-            ->classrooms()->active()->pluck('id')->toArray();
+        $totals = (clone $sessionsQuery)
+            ->selectRaw("
+                COUNT(*)                                                  as total_sessions,
+                COUNT(*) FILTER (WHERE status = 'active')                 as active_sessions,
+                COUNT(*) FILTER (WHERE status = 'completed')              as completed_sessions,
+                COALESCE(SUM(students_count), 0)                          as students_total,
+                COALESCE(SUM(total_snapshots), 0)                         as snapshots_total
+            ")
+            ->first();
 
-        $comparison = $this->aggregator->compareClassrooms($classroomIds, $from, $to);
+        $sessionIds = (clone $sessionsQuery)->pluck('id');
 
-        // Общий тренд школы по дням
-        $dailyTrend = \DB::table('engagement_aggregates as ea')
-            ->whereIn('ea.classroom_id', $classroomIds)
-            ->whereBetween('ea.minute_at', [$from, $to])
-            ->selectRaw("DATE(ea.minute_at) as date, AVG(ea.avg_score) as avg_score")
-            ->groupByRaw("DATE(ea.minute_at)")
-            ->orderBy('date')
-            ->get();
+        $snapshotStats = DB::table('engagement_snapshots')
+            ->whereIn('session_id', $sessionIds)
+            ->selectRaw("
+                ROUND(AVG(engagement_score)::numeric, 2)                  as avg_score,
+                ROUND(MIN(engagement_score)::numeric, 2)                  as min_score,
+                ROUND(MAX(engagement_score)::numeric, 2)                  as max_score,
+                COUNT(*)                                                  as snapshots,
+                COUNT(*) FILTER (WHERE engagement_score >= 75)            as high,
+                COUNT(*) FILTER (WHERE engagement_score >= 50 AND engagement_score < 75) as medium,
+                COUNT(*) FILTER (WHERE engagement_score < 50)             as low
+            ")
+            ->first();
 
         return response()->json([
-            'period'      => ['from' => $from->toDateString(), 'to' => $to->toDateString()],
-            'classrooms'  => $comparison,
-            'daily_trend' => $dailyTrend,
-            'summary'     => [
-                'total_classrooms' => count($classroomIds),
-                'school_avg'       => round(collect($comparison)->avg('avg_score'), 2),
-                'best_classroom'   => collect($comparison)->first(),
-                'worst_classroom'  => collect($comparison)->last(),
+            'period' => [
+                'name' => $period,
+                'from' => $from->toIso8601String(),
+                'to'   => $to->toIso8601String(),
             ],
+            'summary' => [
+                'total_sessions'     => (int) ($totals->total_sessions ?? 0),
+                'active_sessions'    => (int) ($totals->active_sessions ?? 0),
+                'completed_sessions' => (int) ($totals->completed_sessions ?? 0),
+                'students_total'     => (int) ($totals->students_total ?? 0),
+                'snapshots_total'    => (int) ($snapshotStats->snapshots ?? $totals->snapshots_total ?? 0),
+                'avg_score'          => (float) ($snapshotStats->avg_score ?? 0),
+                'min_score'          => (float) ($snapshotStats->min_score ?? 0),
+                'max_score'          => (float) ($snapshotStats->max_score ?? 0),
+            ],
+            'distribution' => [
+                'high'   => (int) ($snapshotStats->high ?? 0),
+                'medium' => (int) ($snapshotStats->medium ?? 0),
+                'low'    => (int) ($snapshotStats->low ?? 0),
+            ],
+            'time_series'  => $this->buildTimeSeries($sessionIds, $from, $to, $period),
+            'classrooms'   => $this->buildClassroomBreakdown($sessionIds, $schoolId),
+            'top_sessions' => $this->buildTopSessions($sessionsQuery),
         ]);
     }
 
-    /**
-     * GET /api/v1/analytics/heatmap/{classroomId}
-     * Тепловая карта вовлечённости: день × час
-     */
-    public function heatmap(Request $request, string $classroomId): JsonResponse
+    // GET /api/v1/analytics/heatmap?days=14
+    public function heatmap(Request $request): JsonResponse
     {
-        $request->validate([
-            'from' => 'required|date',
-            'to'   => 'required|date',
-        ]);
+        $days     = max(1, min(60, (int) $request->input('days', 14)));
+        $from     = now()->subDays($days)->startOfDay();
+        $to       = now()->endOfDay();
+        $schoolId = $request->user()?->school_id;
 
-        $from = Carbon::parse($request->from)->startOfDay();
-        $to   = Carbon::parse($request->to)->endOfDay();
-
-        $data = $this->aggregator->getEngagementHeatmap($classroomId, $from, $to);
+        $rows = DB::table('engagement_snapshots as es')
+            ->join('lesson_sessions as ls', 'ls.id', '=', 'es.session_id')
+            ->join('classrooms as c', 'c.id', '=', 'es.classroom_id')
+            ->when($schoolId, fn ($q) => $q->where('c.school_id', $schoolId))
+            ->whereBetween('es.captured_at', [$from, $to])
+            ->selectRaw("
+                EXTRACT(DOW  FROM es.captured_at)::int       as day_of_week,
+                EXTRACT(HOUR FROM es.captured_at)::int       as hour_of_day,
+                ROUND(AVG(es.engagement_score)::numeric, 2)  as avg_score,
+                COUNT(*)                                     as snapshots
+            ")
+            ->groupByRaw('EXTRACT(DOW FROM es.captured_at), EXTRACT(HOUR FROM es.captured_at)')
+            ->orderByRaw('day_of_week, hour_of_day')
+            ->get()
+            ->map(fn ($r) => [
+                'day'       => (int) $r->day_of_week,
+                'hour'      => (int) $r->hour_of_day,
+                'avg_score' => (float) $r->avg_score,
+                'snapshots' => (int) $r->snapshots,
+            ]);
 
         return response()->json([
-            'classroom_id' => $classroomId,
-            'period'       => ['from' => $from->toDateString(), 'to' => $to->toDateString()],
-            'data'         => $data,
-            'days'         => ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'],
+            'period' => ['from' => $from->toDateString(), 'to' => $to->toDateString()],
+            'days'   => ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'],
+            'data'   => $rows,
         ]);
     }
 
-    /**
-     * GET /api/v1/analytics/students/{studentId}
-     * Персональная аналитика студента
-     */
-    public function student(Request $request, string $studentId): JsonResponse
+    // ── Helpers ──────────────────────────────────────────────────
+
+    private function resolvePeriod(Request $request): array
     {
-        $request->validate([
-            'from' => 'required|date',
-            'to'   => 'required|date',
-        ]);
+        $period = $request->input('period', 'today');
 
-        $from  = Carbon::parse($request->from)->startOfDay();
-        $to    = Carbon::parse($request->to)->endOfDay();
-        $stats = $this->aggregator->getStudentStats($studentId, $from, $to);
+        return match ($period) {
+            'week'  => [now()->subDays(6)->startOfDay(),  now()->endOfDay(), 'week'],
+            'month' => [now()->subDays(29)->startOfDay(), now()->endOfDay(), 'month'],
+            default => [now()->startOfDay(),              now()->endOfDay(), 'today'],
+        };
+    }
 
-        // История по урокам
-        $sessions = \App\Domain\Engagement\Models\EngagementSnapshot::forStudent($studentId)
+    private function buildTimeSeries($sessionIds, Carbon $from, Carbon $to, string $period): array
+    {
+        // Для today берём по часам, для week/month — по дням
+        $bucket = $period === 'today'
+            ? "DATE_TRUNC('hour', captured_at)"
+            : "DATE_TRUNC('day',  captured_at)";
+
+        $rows = DB::table('engagement_snapshots')
+            ->whereIn('session_id', $sessionIds)
             ->whereBetween('captured_at', [$from, $to])
-            ->join('lesson_sessions', 'lesson_sessions.id', '=', 'engagement_snapshots.session_id')
-            ->selectRaw('
-                engagement_snapshots.session_id,
-                lesson_sessions.subject,
-                lesson_sessions.started_at,
-                AVG(engagement_snapshots.engagement_score) as avg_score,
-                COUNT(*) as snapshots
-            ')
-            ->groupBy('engagement_snapshots.session_id', 'lesson_sessions.subject', 'lesson_sessions.started_at')
-            ->orderBy('lesson_sessions.started_at')
+            ->selectRaw("$bucket as bucket, ROUND(AVG(engagement_score)::numeric, 2) as avg_score, COUNT(*) as samples")
+            ->groupByRaw($bucket)
+            ->orderByRaw($bucket)
             ->get();
 
-        return response()->json([
-            'student_id' => $studentId,
-            'period'     => ['from' => $from->toDateString(), 'to' => $to->toDateString()],
-            'stats'      => $stats,
-            'sessions'   => $sessions->map(fn ($s) => [
-                'session_id'  => $s->session_id,
-                'subject'     => $s->subject,
-                'date'        => Carbon::parse($s->started_at)->toDateString(),
-                'avg_score'   => round($s->avg_score, 2),
-                'snapshots'   => $s->snapshots,
-            ]),
-        ]);
+        return $rows->map(fn ($r) => [
+            'at'        => Carbon::parse($r->bucket)->toIso8601String(),
+            'avg_score' => (float) $r->avg_score,
+            'samples'   => (int) $r->samples,
+        ])->toArray();
     }
 
-    /**
-     * GET /api/v1/analytics/compare
-     * Сравнение нескольких классов
-     */
-    public function compare(Request $request): JsonResponse
+    private function buildClassroomBreakdown($sessionIds, ?string $schoolId): array
     {
-        $request->validate([
-            'classroom_ids'   => 'required|array|max:10',
-            'classroom_ids.*' => 'uuid',
-            'from'            => 'required|date',
-            'to'              => 'required|date',
-        ]);
+        if ($sessionIds->isEmpty()) {
+            return [];
+        }
 
-        $from = Carbon::parse($request->from)->startOfDay();
-        $to   = Carbon::parse($request->to)->endOfDay();
+        return DB::table('engagement_snapshots as es')
+            ->join('classrooms as c', 'c.id', '=', 'es.classroom_id')
+            ->when($schoolId, fn ($q) => $q->where('c.school_id', $schoolId))
+            ->whereIn('es.session_id', $sessionIds)
+            ->groupBy('es.classroom_id', 'c.name')
+            ->selectRaw("
+                es.classroom_id,
+                c.name                                      as classroom_name,
+                ROUND(AVG(es.engagement_score)::numeric, 2) as avg_score,
+                COUNT(DISTINCT es.session_id)               as sessions,
+                COUNT(*)                                    as snapshots,
+                COUNT(*) FILTER (WHERE es.engagement_score >= 75) as high,
+                COUNT(*) FILTER (WHERE es.engagement_score < 50)  as low
+            ")
+            ->orderByDesc('avg_score')
+            ->get()
+            ->map(fn ($r) => [
+                'classroom_id'   => $r->classroom_id,
+                'classroom_name' => $r->classroom_name,
+                'avg_score'      => (float) $r->avg_score,
+                'sessions'       => (int) $r->sessions,
+                'snapshots'      => (int) $r->snapshots,
+                'high'           => (int) $r->high,
+                'low'            => (int) $r->low,
+            ])
+            ->toArray();
+    }
 
-        $data = $this->aggregator->compareClassrooms(
-            $request->classroom_ids,
-            $from,
-            $to
-        );
-
-        return response()->json(['data' => $data]);
+    private function buildTopSessions($baseQuery): array
+    {
+        return (clone $baseQuery)
+            ->with(['classroom', 'teacher'])
+            ->whereNotNull('avg_engagement_score')
+            ->orderByDesc('avg_engagement_score')
+            ->limit(5)
+            ->get()
+            ->map(fn (LessonSession $s) => [
+                'id'             => $s->id,
+                'classroom_name' => $s->classroom?->name,
+                'subject'        => $s->subject,
+                'started_at'     => $s->started_at?->toIso8601String(),
+                'ended_at'       => $s->ended_at?->toIso8601String(),
+                'avg_score'      => (float) ($s->avg_engagement_score ?? 0),
+                'students_count' => (int) ($s->students_count ?? 0),
+                'status'         => $s->status,
+            ])
+            ->toArray();
     }
 }
