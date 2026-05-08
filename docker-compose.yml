@@ -186,7 +186,10 @@ services:
     container_name: engage_ml
     restart: unless-stopped
     environment:
-      LARAVEL_API_URL: http://laravel/api/internal
+      # ML обращается к Laravel через nginx (laravel сам HTTP не слушает —
+      # только PHP-FPM на 9000). Без этого PUSH-снэпшоты от ML падали с
+      # «Connection refused» и аналитика оставалась пустой.
+      LARAVEL_API_URL: http://nginx/api/internal
       LARAVEL_API_SECRET: ${ML_SERVICE_SECRET}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
       CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/2
@@ -229,7 +232,8 @@ services:
       --queues=frame_analysis,scoring,alerts
       --hostname=worker@%h
     environment:
-      LARAVEL_API_URL: http://laravel/api/internal
+      # См. ml-service: laravel сам HTTP не слушает, поэтому пушим через nginx.
+      LARAVEL_API_URL: http://nginx/api/internal
       LARAVEL_API_SECRET: ${ML_SERVICE_SECRET}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
       CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/2
