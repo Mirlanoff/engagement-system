@@ -69,7 +69,7 @@ const statusLabel = computed(() => ({
   starting:   'Запуск камеры…',
   streaming:  'Анализ идёт',
   analyzing:  'Анализ идёт',
-  fallback:   'ML недоступен — симуляция',
+  ml_offline: 'ML недоступен — данных не будет',
   error:      'Ошибка',
 }[lastStatus.value] || lastStatus.value))
 

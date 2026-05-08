@@ -27,8 +27,14 @@ class FaceAnalyzer:
         captured_at: str,
     ) -> List[FaceAnalysis]:
         """
-        Возвращает список FaceAnalysis — по одному на каждого студента.
-        student_ids — порядок студентов по позициям в классе (слева направо).
+        Возвращает список FaceAnalysis — по одному на каждое РЕАЛЬНО
+        найденное в кадре лицо, не больше чем len(student_ids).
+
+        Без лиц в кадре → пустой список.
+        Не дополняем студентов с face_detected=False — система должна
+        анализировать только тех, кого реально видно (требование
+        пользователя: «зачем здесь сидеры — анализируй только тех,
+        кто в камере»).
         """
         t_start = time.time()
 
@@ -36,50 +42,44 @@ class FaceAnalyzer:
         if frame is None:
             return []
 
-        results = []
         face_mesh = ModelManager.get_face_detector()
-
         if face_mesh is None:
-            # Нет моделей — возвращаем заглушки (для тестов)
-            return self._stub_results(student_ids, camera_id, captured_at)
+            # Без MediaPipe честно отказываемся анализировать.
+            # Никаких заглушек/симуляций — иначе аналитика заполнится
+            # фейковыми данными.
+            logger.warning("FaceMesh model not loaded; refusing to analyze frame")
+            return []
+
+        if not student_ids:
+            # Нет «слотов» — некуда писать снэпшоты (нарушение FK).
+            return []
 
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         mesh_result = face_mesh.process(rgb)
 
         if not mesh_result.multi_face_landmarks:
-            # Никого не обнаружено
-            for sid in student_ids:
-                results.append(FaceAnalysis(
-                    student_id=sid,
-                    camera_id=camera_id,
-                    captured_at=captured_at,
-                    face_detected=False,
-                ))
-            return results
+            # Лиц не нашли — возвращаем пусто, БЕЗ face_detected=False
+            # снэпшотов на каждого студента. Раньше это засоряло БД и
+            # тянуло вниз средний engagement_score.
+            return []
 
         h, w = frame.shape[:2]
-        faces = mesh_result.multi_face_landmarks
+        faces = list(mesh_result.multi_face_landmarks)
 
-        # Сопоставляем найденные лица со студентами по горизонтальной позиции
-        # (сортируем лица слева направо — как сидят студенты)
+        # Сопоставляем найденные лица со слотами по горизонтальной позиции
+        # (сортируем лица слева направо — как сидят люди в кадре).
         face_positions = []
         for i, landmarks in enumerate(faces):
             cx = np.mean([lm.x for lm in landmarks.landmark]) * w
             face_positions.append((cx, i, landmarks))
+        face_positions.sort(key=lambda x: x[0])
 
-        face_positions.sort(key=lambda x: x[0])  # слева направо
+        # Используем минимум(детекций, слотов) — лишние лица пока игнорируем.
+        usable = min(len(face_positions), len(student_ids))
+        results: List[FaceAnalysis] = []
 
-        for j, student_id in enumerate(student_ids):
-            if j >= len(face_positions):
-                # Студента нет в кадре
-                results.append(FaceAnalysis(
-                    student_id=student_id,
-                    camera_id=camera_id,
-                    captured_at=captured_at,
-                    face_detected=False,
-                ))
-                continue
-
+        for j in range(usable):
+            student_id = student_ids[j]
             _, _, landmarks = face_positions[j]
 
             analysis = FaceAnalysis(
@@ -90,7 +90,6 @@ class FaceAnalyzer:
                 face_confidence=0.85,
             )
 
-            # Bbox
             xs = [lm.x * w for lm in landmarks.landmark]
             ys = [lm.y * h for lm in landmarks.landmark]
             analysis.face_bbox_x = int(min(xs))
@@ -98,21 +97,16 @@ class FaceAnalyzer:
             analysis.face_bbox_w = int(max(xs) - min(xs))
             analysis.face_bbox_h = int(max(ys) - min(ys))
 
-            # Поза головы и взгляд из landmarks
             self._estimate_head_pose(analysis, landmarks, w, h)
             self._estimate_gaze(analysis, landmarks)
-
-            # Эмоция
             self._detect_emotion(
                 analysis, frame,
                 analysis.face_bbox_x, analysis.face_bbox_y,
                 analysis.face_bbox_w, analysis.face_bbox_h,
             )
 
-            # Итоговый score
             analysis = scorer.compute(analysis)
             analysis.processing_time_ms = round((time.time() - t_start) * 1000, 2)
-
             results.append(analysis)
 
         return results
@@ -223,28 +217,3 @@ class FaceAnalyzer:
         except Exception as e:
             logger.error("Frame decode failed", error=str(e))
             return None
-
-    def _stub_results(
-        self, student_ids: List[str], camera_id: str, captured_at: str
-    ) -> List[FaceAnalysis]:
-        """Тестовые данные когда нет реальных моделей."""
-        import random
-        results = []
-        for sid in student_ids:
-            a = FaceAnalysis(
-                student_id=sid,
-                camera_id=camera_id,
-                captured_at=captured_at,
-                face_detected=True,
-                face_confidence=0.9,
-                gaze_yaw=random.uniform(-15, 15),
-                gaze_pitch=random.uniform(-10, 10),
-                head_yaw=random.uniform(-20, 20),
-                head_pitch=random.uniform(-15, 15),
-                head_roll=random.uniform(-5, 5),
-                emotion=random.choice(["neutral", "happy", "neutral", "neutral"]),
-                emotion_confidence=random.uniform(0.6, 0.95),
-            )
-            a = scorer.compute(a)
-            results.append(a)
-        return results

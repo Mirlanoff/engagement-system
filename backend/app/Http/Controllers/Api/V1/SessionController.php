@@ -177,9 +177,10 @@ class SessionController extends Controller
     }
 
     // POST /api/v1/sessions/{session}/frames
-    // Принимает кадр с веб-камеры учителя и пересылает в ML сервис.
-    // Если ML недоступен — генерирует симулированные снэпшоты,
-    // чтобы дашборд продолжал работать без отдельных терминалов.
+    // Принимает кадр с веб-камеры учителя и пересылает в ML сервис,
+    // который реально находит лица в кадре. Никаких «симулированных»
+    // данных мы не пишем — если ML лежит, аналитика просто не наполняется,
+    // и фронт показывает статус «ML offline».
     public function ingestFrame(LessonSession $session, Request $request): JsonResponse
     {
         if ($session->status !== 'active') {
@@ -197,21 +198,15 @@ class SessionController extends Controller
         $frame    = $this->extractBase64($validated['frame']);
         $cameraId = $validated['camera_id'] ?? 'browser';
 
-        // Берём UUID студентов класса — ML сопоставит с найденными лицами.
-        // Если в классе ещё никого нет (свежая установка без сидера) —
-        // авто-создаём анонимных «Студент 1..5», чтобы система анализировала
-        // тех, кого видит в кадре, без ручного заведения списка класса.
-        $session->loadMissing('classroom.students');
-        $studentIds = $session->classroom?->students
-            ->pluck('id')
-            ->take(50)
-            ->all() ?? [];
+        // Готовим «слоты» для лиц в кадре — это просто UUID-ы, на которые
+        // ML повесит свои детекции. Реальные ученики из ростера, если они
+        // есть; иначе — анонимные авто-созданные «Студент 1..N».
+        // ML вернёт ровно столько снэпшотов, сколько лиц увидел.
+        $studentIds = $this->resolveFaceSlots($session, 10);
 
-        if (empty($studentIds) && $session->classroom_id !== null) {
-            $studentIds = $this->ensureAnonymousStudents($session->classroom, 5);
-        }
-
-        // 1) Пробуем настоящий ML анализ
+        // Передаём ML кадр + слоты. ML вернёт снэпшоты ТОЛЬКО на тех слотов,
+        // которым реально нашёл лицо (face_detected=true). На пустые слоты
+        // он ничего не пишет.
         $mlOk = $this->mlClient->analyzeFrame(
             sessionId: $session->id,
             classroomId: $session->classroom_id,
@@ -225,38 +220,41 @@ class SessionController extends Controller
                 'status'      => 'analyzing',
                 'session_id'  => $session->id,
                 'camera_id'   => $cameraId,
-                'students'    => count($studentIds),
+                'slots'       => count($studentIds),
             ], 202);
         }
 
-        // 2) Fallback — ML сервис недоступен. Чтобы дашборд жил,
-        //    пишем по одному снэпшоту на каждого студента класса
-        //    (имитация того, что в кадре видны 1..N лиц).
-        $fallbackBatch = [];
-        foreach ($studentIds as $sid) {
-            $fallbackBatch[] = $this->simulatedSnapshot($sid, $cameraId);
-        }
-        $fallbackBatch = array_filter($fallbackBatch);
-
-        if (!empty($fallbackBatch)) {
-            try {
-                $this->service->processSnapshots($session->id, $fallbackBatch);
-            } catch (\Throwable $e) {
-                Log::warning('Fallback snapshot insert failed', [
-                    'error'      => $e->getMessage(),
-                    'session_id' => $session->id,
-                ]);
-            }
-        }
-
+        // ML недоступен — НЕ пишем фейковые данные. Фронт покажет
+        // «ML offline», аналитика не наполняется до починки ML-сервиса.
         return response()->json([
-            'status'     => 'fallback',
+            'status'     => 'ml_offline',
             'session_id' => $session->id,
             'camera_id'  => $cameraId,
-            'students'   => count($studentIds),
-            'snapshots'  => count($fallbackBatch),
-            'message'    => 'ML сервис недоступен — записаны симулированные снэпшоты.',
+            'message'    => 'ML сервис недоступен — анализ кадра не выполнен.',
         ], 202);
+    }
+
+    /**
+     * Возвращает список UUID-ов, которые ML использует как «слоты» для лиц.
+     * Если в классе уже есть ученики — берём их.
+     * Иначе — авто-создаём минимум $minSlots анонимных «Студент N»,
+     * чтобы любой кадр имел куда повесить детекции (FK не нарушается).
+     */
+    private function resolveFaceSlots(LessonSession $session, int $minSlots): array
+    {
+        $session->loadMissing('classroom.students');
+        $ids = $session->classroom?->students
+            ->pluck('id')
+            ->take(50)
+            ->all() ?? [];
+
+        if (count($ids) < $minSlots && $session->classroom_id !== null && $session->classroom !== null) {
+            $missing = $minSlots - count($ids);
+            $extra   = $this->ensureAnonymousStudents($session->classroom, $missing);
+            $ids     = array_merge($ids, $extra);
+        }
+
+        return $ids;
     }
 
     private function ensureAnonymousStudents(\App\Models\Classroom $classroom, int $count): array
@@ -310,36 +308,6 @@ class SessionController extends Controller
             return $parts[1] ?? '';
         }
         return $raw;
-    }
-
-    private function simulatedSnapshot(?string $studentId, string $cameraId): ?array
-    {
-        if ($studentId === null) {
-            return null;
-        }
-
-        $score = max(0, min(100, round(60 + lcg_value() * 30, 2)));
-        $emotions = ['neutral', 'neutral', 'happy', 'neutral', 'surprised'];
-        return [
-            'student_id'         => $studentId,
-            'camera_id'          => $cameraId,
-            'captured_at'        => now()->toIso8601String(),
-            'engagement_score'   => $score,
-            'gaze_score'         => $score,
-            'emotion_score'      => $score,
-            'head_pose_score'    => $score,
-            'presence_score'     => 95.0,
-            'emotion'            => $emotions[array_rand($emotions)],
-            'emotion_confidence' => 0.7,
-            'gaze_yaw'           => round(lcg_value() * 30 - 15, 2),
-            'gaze_pitch'         => round(lcg_value() * 20 - 10, 2),
-            'head_yaw'           => round(lcg_value() * 30 - 15, 2),
-            'head_pitch'         => round(lcg_value() * 20 - 10, 2),
-            'head_roll'          => round(lcg_value() * 10 - 5, 2),
-            'face_detected'     => true,
-            'face_confidence'   => 0.9,
-            'processing_time_ms' => 0,
-        ];
     }
 
     // POST /api/internal/snapshots  (вызывается ML сервисом)
