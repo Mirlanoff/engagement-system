@@ -50,6 +50,10 @@ export const analytics = {
   heatmap: (classroomId, params) => api.get(`/analytics/heatmap/${classroomId}`, { params }),
   student: (studentId, params) => api.get(`/analytics/students/${studentId}`, { params }),
   compare: (data) => api.post('/analytics/compare', data),
+  // Список последних уроков с агрегированной статистикой
+  lessons: (params) => api.get('/analytics/lessons', { params }),
+  // Разбивка одного урока по студентам (эмоции + вовлечённость)
+  session: (id) => api.get(`/analytics/sessions/${id}`),
 }
 
 export const alerts = {
