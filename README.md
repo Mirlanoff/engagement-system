@@ -12,61 +12,60 @@ On-premise деплой на школьном сервере.
 | Фронтенд | Vue 3, Pinia, Chart.js, Tailwind CSS |
 | Инфраструктура | Docker Compose, Nginx, Prometheus, Grafana |
 
-## Быстрый старт
-
-### 1. Требования к серверу
-
-- Ubuntu 22.04+ или Debian 12+
-- Docker Engine 25+ и Docker Compose v2
-- CPU: 8+ ядер (ML обработка без GPU)
-- RAM: 16 GB минимум
-- SSD: 100 GB+
-
-### 2. Установка Docker
+## Быстрый старт — одна команда
 
 ```bash
-curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker $USER
-newgrp docker
+git clone <repo-url> engagement-system && cd engagement-system
+./start.sh
 ```
 
-### 3. Клонирование и настройка
+Всё. Скрипт сам:
+
+1. создаст `.env` из `.env.example`,
+2. сгенерирует все пароли и `APP_KEY`,
+3. сгенерирует self-signed SSL сертификат,
+4. соберёт Docker образы,
+5. накатит миграции и сидеры в Postgres,
+6. поднимет все 14 сервисов (Laravel + Vue + ML + **Celery worker/beat/flower** + Redis + Soketi + Postgres + Grafana + Prometheus + Nginx + Horizon + Scheduler).
+
+Дальше учитель просто открывает **https://localhost** в браузере, логинится и нажимает «Начать урок» — камера откроется автоматически, аналитика появится во вкладках «Аналитика» и «История».
+
+### Управление
 
 ```bash
-git clone <repo-url> engagement-system
-cd engagement-system
-
-# Настройка окружения
-cp .env.example .env
-nano .env  # заполни все REPLACE_WITH_... значения
-
-# Генерация APP_KEY для Laravel
-docker run --rm php:8.3-cli php -r "echo 'base64:'.base64_encode(random_bytes(32));"
+./start.sh           # запуск (либо первичная установка)
+./start.sh stop      # остановить
+./start.sh restart   # перезапустить
+./start.sh status    # статус всех сервисов
+./start.sh logs      # все логи
+./start.sh logs celery-worker   # только Celery
 ```
 
-### 4. Первый запуск
+Или через `make`:
 
 ```bash
-chmod +x scripts/manage.sh
-./scripts/manage.sh install
+make up        # запустить
+make down      # остановить
+make logs      # логи
+make status    # статус
 ```
 
-Это автоматически:
-- Сгенерирует SSL сертификат
-- Соберёт все Docker образы
-- Запустит БД и применит миграции
-- Поднимет все сервисы
+### Требования к серверу
 
-### 5. Управление системой
+- Ubuntu 22.04+ / Debian 12+
+- Docker Engine 25+ и Docker Compose v2 (`curl -fsSL https://get.docker.com | sh`)
+- CPU: 8+ ядер · RAM: 16 GB+ · SSD: 100 GB+
+
+### Дополнительно — `scripts/manage.sh`
+
+Расширенные операции (бэкап БД, восстановление, тесты, артизан, shell в контейнер):
 
 ```bash
-./scripts/manage.sh start    # запуск
-./scripts/manage.sh stop     # остановка
-./scripts/manage.sh status   # статус сервисов
-./scripts/manage.sh logs     # все логи
-./scripts/manage.sh logs ml-service   # логи ML сервиса
-./scripts/manage.sh backup   # бэкап БД
-./scripts/manage.sh deploy   # деплой новой версии
+./scripts/manage.sh backup        # бэкап Postgres → ./backups/
+./scripts/manage.sh restore <f>   # восстановление из бэкапа
+./scripts/manage.sh artisan migrate
+./scripts/manage.sh shell laravel
+./scripts/manage.sh test
 ```
 
 ## Адреса после запуска
