@@ -38,6 +38,16 @@
         </div>
         <div class="header-right">
           <span class="header-time">{{ currentTime }}</span>
+          <button
+            v-if="canReset"
+            class="reset-btn"
+            :class="{ busy: resetting }"
+            :disabled="resetting"
+            :title="'Очистить все данные дашборда'"
+            @click="confirmReset">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4v5h5M20 20v-5h-5M5.07 9A7.5 7.5 0 0118.93 7.07M18.93 15A7.5 7.5 0 015.07 16.93"/></svg>
+            <span>{{ resetting ? '…' : 'Очистить' }}</span>
+          </button>
           <button class="alert-bell" @click="activeView = 'alerts'">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
             <span v-if="engagementStore.alertCount > 0" class="bell-badge">{{ engagementStore.alertCount }}</span>
@@ -99,6 +109,30 @@ const navItems = computed(() => [
 
 const userInitials = computed(() => (authStore.user?.name || '').split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase())
 const roleLabel    = computed(() => ({ admin: 'Администратор', supervisor: 'Супервайзер', teacher: 'Учитель' }[authStore.user?.role] || ''))
+const canReset     = computed(() => ['admin', 'supervisor'].includes(authStore.user?.role))
+
+const resetting = ref(false)
+async function confirmReset() {
+  if (resetting.value) return
+  const ok = window.confirm(
+    'Очистить все данные дашборда?\n\n' +
+    'Будут удалены: уроки, снэпшоты, агрегаты, алерты, AI-рекомендации.\n' +
+    'Студенты, классы и пользователи останутся.'
+  )
+  if (!ok) return
+  resetting.value = true
+  try {
+    capturingSession.value = null
+    selectedSession.value  = null
+    activeView.value       = 'overview'
+    await engagementStore.resetDashboard()
+  } catch (e) {
+    console.error('reset dashboard failed:', e)
+    alert('Не удалось очистить дашборд: ' + (e?.response?.data?.message || e.message))
+  } finally {
+    resetting.value = false
+  }
+}
 
 function selectSession(session) {
   selectedSession.value = session
@@ -179,6 +213,10 @@ onUnmounted(() => { clearInterval(timer); engagementStore.disconnect() })
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
 .header-right { display:flex; align-items:center; gap:16px; }
 .header-time { font-size:13px; color:#64748b; font-variant-numeric:tabular-nums; }
+.reset-btn { display:flex; align-items:center; gap:6px; height:32px; padding:0 12px; border:1px solid rgba(239,68,68,0.35); background:rgba(239,68,68,0.08); border-radius:8px; color:#fca5a5; cursor:pointer; font-size:12px; font-weight:600; transition:all 0.15s; }
+.reset-btn:hover { background:rgba(239,68,68,0.16); color:#fecaca; border-color:rgba(239,68,68,0.5); }
+.reset-btn:disabled { opacity:0.6; cursor:default; }
+.reset-btn svg { width:14px; height:14px; }
 .alert-bell { position:relative; width:36px; height:36px; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.04); border-radius:8px; color:#94a3b8; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.15s; }
 .alert-bell:hover { color:#f1f5f9; }
 .alert-bell svg { width:18px; height:18px; }
