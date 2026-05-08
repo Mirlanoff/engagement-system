@@ -98,6 +98,10 @@ class FaceAnalyzer:
             analysis.face_bbox_w = int(max(xs) - min(xs))
             analysis.face_bbox_h = int(max(ys) - min(ys))
 
+            # Тело (плечи + торс) — оцениваем геометрически от лица,
+            # т.к. MediaPipe Pose работает с одним человеком в кадре.
+            self._estimate_body_bbox(analysis, w, h)
+
             # Поза головы и взгляд из landmarks
             self._estimate_head_pose(analysis, landmarks, w, h)
             self._estimate_gaze(analysis, landmarks)
@@ -116,6 +120,41 @@ class FaceAnalyzer:
             results.append(analysis)
 
         return results
+
+    def _estimate_body_bbox(self, analysis: FaceAnalysis, frame_w: int, frame_h: int):
+        """
+        Геометрически выводим прямоугольник плеч+торса от bbox лица.
+        MediaPipe Pose работает только с одним человеком, а в классе их обычно
+        несколько — поэтому используем эвристику: тело шире лица в ~2 раза,
+        выше — на пол высоты лица, ниже — на 3 высоты лица.
+        """
+        if (
+            analysis.face_bbox_x is None or analysis.face_bbox_y is None
+            or analysis.face_bbox_w is None or analysis.face_bbox_h is None
+            or analysis.face_bbox_w <= 0 or analysis.face_bbox_h <= 0
+        ):
+            return
+
+        fx = analysis.face_bbox_x
+        fy = analysis.face_bbox_y
+        fw = analysis.face_bbox_w
+        fh = analysis.face_bbox_h
+
+        body_w = int(fw * 2.4)
+        body_h = int(fh * 4.0)
+        body_x = int(fx + fw / 2 - body_w / 2)
+        body_y = int(fy - fh * 0.3)
+
+        # Клипуем по границам кадра
+        body_x = max(0, body_x)
+        body_y = max(0, body_y)
+        body_w = min(body_w, frame_w - body_x)
+        body_h = min(body_h, frame_h - body_y)
+
+        analysis.body_bbox_x = body_x
+        analysis.body_bbox_y = body_y
+        analysis.body_bbox_w = body_w
+        analysis.body_bbox_h = body_h
 
     def _estimate_head_pose(self, analysis: FaceAnalysis, landmarks, w: int, h: int):
         """
@@ -263,6 +302,7 @@ class FaceAnalyzer:
                 emotion=random.choice(["neutral", "happy", "neutral", "surprise"]),
                 emotion_confidence=random.uniform(0.6, 0.95),
             )
+            self._estimate_body_bbox(a, frame_w, frame_h)
             a = scorer.compute(a)
             results.append(a)
         return results

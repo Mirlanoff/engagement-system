@@ -18,6 +18,12 @@ class FaceAnalysis:
     face_bbox_w: Optional[int] = None
     face_bbox_h: Optional[int] = None
 
+    # Прямоугольник тела (выводится от face_bbox: плечи+торс)
+    body_bbox_x: Optional[int] = None
+    body_bbox_y: Optional[int] = None
+    body_bbox_w: Optional[int] = None
+    body_bbox_h: Optional[int] = None
+
     # Взгляд
     gaze_yaw: Optional[float] = None
     gaze_pitch: Optional[float] = None

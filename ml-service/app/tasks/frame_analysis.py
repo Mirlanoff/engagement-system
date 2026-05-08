@@ -99,6 +99,10 @@ def _analysis_to_dict(a: FaceAnalysis) -> dict:
         "face_bbox_y":         a.face_bbox_y,
         "face_bbox_w":         a.face_bbox_w,
         "face_bbox_h":         a.face_bbox_h,
+        "body_bbox_x":         a.body_bbox_x,
+        "body_bbox_y":         a.body_bbox_y,
+        "body_bbox_w":         a.body_bbox_w,
+        "body_bbox_h":         a.body_bbox_h,
         "processing_time_ms":  a.processing_time_ms,
     }
 

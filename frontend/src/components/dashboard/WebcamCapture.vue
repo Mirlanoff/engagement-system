@@ -69,7 +69,7 @@ const detectedStudents = computed(() => {
   const sid = props.session?.id
   if (!sid) return []
   const map = engagementStore.studentScores[sid] || {}
-  return Object.values(map).filter(s => s?.face_detected && s?.bbox)
+  return Object.values(map).filter(s => s?.face_detected && (s?.bbox || s?.body_bbox))
 })
 const detectedCount = computed(() => detectedStudents.value.length)
 
@@ -196,13 +196,27 @@ function drawOverlay() {
   const sy = dispH / srcH
 
   for (const s of detectedStudents.value) {
+    const color = colorForScore(s.score)
+
+    // 1) Тело (плечи + торс) — пунктирный прямоугольник
+    if (s.body_bbox) {
+      const bb = s.body_bbox
+      ctx.save()
+      ctx.lineWidth   = Math.max(1.5, dispW / 320)
+      ctx.strokeStyle = color
+      ctx.globalAlpha = 0.55
+      ctx.setLineDash([6, 5])
+      ctx.strokeRect(bb.x * sx, bb.y * sy, bb.w * sx, bb.h * sy)
+      ctx.restore()
+    }
+
+    // 2) Лицо — сплошной цветной прямоугольник
     const b = s.bbox
     if (!b) continue
     const x = b.x * sx
     const y = b.y * sy
     const w = b.w * sx
     const h = b.h * sy
-    const color = colorForScore(s.score)
 
     ctx.lineWidth   = Math.max(2, dispW / 200)
     ctx.strokeStyle = color

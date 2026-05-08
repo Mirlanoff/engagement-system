@@ -259,7 +259,8 @@ class SessionService
                 'emotion'       => $s['emotion'] ?? null,
                 'face_detected' => $s['face_detected'] ?? true,
                 'gaze_on_board' => abs($s['gaze_yaw'] ?? 999) < 25,
-                'bbox'          => $this->bboxOrNull($s),
+                'bbox'          => $this->bboxOrNull($s, 'face'),
+                'body_bbox'     => $this->bboxOrNull($s, 'body'),
                 'level'         => match(true) {
                     $s['engagement_score'] >= 75 => 'high',
                     $s['engagement_score'] >= 50 => 'medium',
@@ -300,15 +301,15 @@ class SessionService
         }
     }
 
-    private function bboxOrNull(array $s): ?array
+    private function bboxOrNull(array $s, string $prefix = 'face'): ?array
     {
         if (($s['face_detected'] ?? true) !== true) {
             return null;
         }
-        $x = $s['face_bbox_x'] ?? null;
-        $y = $s['face_bbox_y'] ?? null;
-        $w = $s['face_bbox_w'] ?? null;
-        $h = $s['face_bbox_h'] ?? null;
+        $x = $s["{$prefix}_bbox_x"] ?? null;
+        $y = $s["{$prefix}_bbox_y"] ?? null;
+        $w = $s["{$prefix}_bbox_w"] ?? null;
+        $h = $s["{$prefix}_bbox_h"] ?? null;
         if ($x === null || $y === null || $w === null || $h === null) {
             return null;
         }
