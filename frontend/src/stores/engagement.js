@@ -3,15 +3,34 @@ import { ref, computed } from 'vue'
 import { sessions, alerts } from '@/api'
 
 export const useEngagementStore = defineStore('engagement', () => {
-  const activeSessions  = ref([])
-  const studentScores   = ref({})
-  const classAverages   = ref({})
-  const activeAlerts    = ref([])
-  const isConnected     = ref(false)
-  let   echo            = null
+  const activeSessions   = ref([])
+  const studentScores    = ref({})
+  const classAverages    = ref({})
+  const studentsPresent  = ref({})   // sessionId -> int
+  const studentsTotal    = ref({})   // sessionId -> int
+  const distributions    = ref({})   // sessionId -> { high, medium, low }
+  const emotions         = ref({})   // sessionId -> { happy: n, neutral: n, ... }
+  const timelines        = ref({})   // sessionId -> [{ t, avg, present }, ...]
+  const activeAlerts     = ref([])
+  const isConnected      = ref(false)
+  let   echo             = null
+
+  const TIMELINE_MAX_POINTS = 240   // ~20 минут при 5-секундном цикле
 
   const alertCount     = computed(() => activeAlerts.value.filter(a => !a.is_acknowledged).length)
   const criticalAlerts = computed(() => activeAlerts.value.filter(a => a.severity === 'critical' && !a.is_acknowledged))
+
+  const totalStudentsPresent = computed(() =>
+    activeSessions.value.reduce((sum, s) => sum + (studentsPresent.value[s.id] ?? s.students_present ?? 0), 0)
+  )
+
+  const overallClassAverage = computed(() => {
+    const values = activeSessions.value
+      .map(s => classAverages.value[s.id] ?? s.live_avg_score)
+      .filter(v => typeof v === 'number' && !Number.isNaN(v))
+    if (!values.length) return 0
+    return Math.round(values.reduce((a, b) => a + b, 0) / values.length)
+  })
 
   // ── WebSocket ─────────────────────────────────────────────────
   function connectWebSocket(schoolId) {
@@ -57,11 +76,7 @@ export const useEngagementStore = defineStore('engagement', () => {
     if (!echo) return
     echo.join(`session.${sessionId}`)
       .listen('.engagement.update', (e) => {
-        if (!studentScores.value[sessionId]) studentScores.value[sessionId] = {}
-        e.students?.forEach(s => {
-          studentScores.value[sessionId][s.student_id] = s
-        })
-        classAverages.value[sessionId] = e.class_avg
+        applyEngagementUpdate(sessionId, e)
       })
       .listen('.session.ended', () => {
         activeSessions.value = activeSessions.value.filter(s => s.id !== sessionId)
@@ -71,10 +86,45 @@ export const useEngagementStore = defineStore('engagement', () => {
       })
   }
 
+  function applyEngagementUpdate(sessionId, e) {
+    if (!studentScores.value[sessionId]) studentScores.value[sessionId] = {}
+    e.students?.forEach(s => {
+      studentScores.value[sessionId][s.student_id] = s
+    })
+    classAverages.value[sessionId]   = e.class_avg ?? 0
+    studentsPresent.value[sessionId] = e.students_present ?? 0
+    studentsTotal.value[sessionId]   = e.students_total ?? (e.students?.length ?? 0)
+    distributions.value[sessionId]   = e.distribution || { high: 0, medium: 0, low: 0 }
+    emotions.value[sessionId]        = e.emotions || {}
+
+    const series = timelines.value[sessionId] || []
+    series.push({
+      t:       e.timestamp || new Date().toISOString(),
+      avg:     e.class_avg ?? 0,
+      present: e.students_present ?? 0,
+    })
+    if (series.length > TIMELINE_MAX_POINTS) {
+      series.splice(0, series.length - TIMELINE_MAX_POINTS)
+    }
+    timelines.value[sessionId] = series
+
+    // Синхронизируем кешированную сессию (для дашборда без подписки на канал).
+    const sess = activeSessions.value.find(s => s.id === sessionId)
+    if (sess) {
+      sess.students_present = e.students_present ?? sess.students_present ?? 0
+      sess.live_avg_score   = e.class_avg ?? sess.live_avg_score
+    }
+  }
+
   function unsubscribeFromSession(sessionId) {
     echo?.leave(`session.${sessionId}`)
     delete studentScores.value[sessionId]
     delete classAverages.value[sessionId]
+    delete studentsPresent.value[sessionId]
+    delete studentsTotal.value[sessionId]
+    delete distributions.value[sessionId]
+    delete emotions.value[sessionId]
+    delete timelines.value[sessionId]
   }
 
   // ── Загрузка данных ───────────────────────────────────────────
@@ -128,7 +178,9 @@ export const useEngagementStore = defineStore('engagement', () => {
 
   return {
     activeSessions, studentScores, classAverages,
+    studentsPresent, studentsTotal, distributions, emotions, timelines,
     activeAlerts, isConnected, alertCount, criticalAlerts,
+    totalStudentsPresent, overallClassAverage,
     connectWebSocket, subscribeToSession, unsubscribeFromSession,
     loadActiveSessions, loadActiveAlerts, acknowledgeAlert, disconnect,
   }

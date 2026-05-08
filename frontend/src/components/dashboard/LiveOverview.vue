@@ -15,8 +15,10 @@
           <span class="summary-label">Активных уроков</span>
         </div>
         <div class="summary-item">
-          <span class="summary-value">{{ totalStudents }}</span>
-          <span class="summary-label">Студентов онлайн</span>
+          <span class="summary-value">
+            {{ totalStudentsPresent }}<span v-if="totalStudentsRoster" class="summary-sub">/ {{ totalStudentsRoster }}</span>
+          </span>
+          <span class="summary-label">Студентов в кадре</span>
         </div>
         <div class="summary-item">
           <span class="summary-value" :class="avgClass(schoolAvg)">{{ schoolAvg }}%</span>
@@ -75,16 +77,25 @@ function onSessionStarted(session) {
   emit('session-started', session)
 }
 
-const totalStudents = computed(() =>
+const totalStudentsPresent = computed(() =>
+  props.sessions.reduce((s, sess) => s + (sess.students_present || 0), 0)
+)
+const totalStudentsRoster = computed(() =>
   props.sessions.reduce((s, sess) => s + (sess.students_count || 0), 0)
 )
 const schoolAvg = computed(() => {
   if (!props.sessions.length) return 0
-  const avgs = props.sessions.map(s => props.averages[s.id] || s.avg_engagement_score || 0)
+  const avgs = props.sessions
+    .map(s => props.averages[s.id] ?? s.live_avg_score ?? s.avg_engagement_score ?? null)
+    .filter(v => typeof v === 'number')
+  if (!avgs.length) return 0
   return Math.round(avgs.reduce((a, b) => a + b, 0) / avgs.length)
 })
 const lowCount = computed(() =>
-  props.sessions.filter(s => (props.averages[s.id] || 0) < 50).length
+  props.sessions.filter(s => {
+    const v = props.averages[s.id] ?? s.live_avg_score
+    return typeof v === 'number' && v < 50 && (s.students_present || 0) > 0
+  }).length
 )
 function avgClass(v) {
   return v >= 75 ? 'success' : v >= 50 ? 'warning' : 'danger'

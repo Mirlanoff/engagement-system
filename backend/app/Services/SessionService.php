@@ -219,36 +219,73 @@ class SessionService
 
             DB::table('engagement_snapshots')->insert($records);
 
-            // Broadcast realtime обновление
-            $classAvg = collect($snapshots)->avg('engagement_score');
-            $this->broadcastUpdate($session->id, $snapshots, $classAvg);
+            // Среднее считаем только по реально обнаруженным студентам,
+            // чтобы отсутствующие не «обнуляли» класс.
+            $present       = array_values(array_filter(
+                $snapshots,
+                fn($s) => ($s['face_detected'] ?? true) === true
+            ));
+            $presentScores = array_column($present, 'engagement_score');
+            $classAvg      = !empty($presentScores)
+                ? array_sum($presentScores) / count($presentScores)
+                : 0.0;
 
-            // Проверяем алерты
-            $this->checkAlerts($session, $snapshots, $classAvg);
+            // Broadcast realtime обновление
+            $this->broadcastUpdate($session->id, $snapshots, $classAvg, count($present));
+
+            // Проверяем алерты только если в кадре кто-то есть
+            if (!empty($present)) {
+                $this->checkAlerts($session, $snapshots, $classAvg);
+            }
         });
     }
 
     // ── Realtime broadcast ──────────────────────────────────────
 
-    private function broadcastUpdate(string $sessionId, array $snapshots, float $classAvg): void
-    {
+    private function broadcastUpdate(
+        string $sessionId,
+        array $snapshots,
+        float $classAvg,
+        int $studentsPresent,
+    ): void {
         try {
+            $students = array_map(fn($s) => [
+                'student_id'    => $s['student_id'],
+                'score'         => round($s['engagement_score'], 2),
+                'emotion'       => $s['emotion'] ?? null,
+                'face_detected' => $s['face_detected'] ?? true,
+                'gaze_on_board' => abs($s['gaze_yaw'] ?? 999) < 25,
+                'level'         => match(true) {
+                    $s['engagement_score'] >= 75 => 'high',
+                    $s['engagement_score'] >= 50 => 'medium',
+                    default                       => 'low',
+                },
+            ], $snapshots);
+
+            $highCount   = count(array_filter($students, fn($s) => $s['face_detected'] && $s['level'] === 'high'));
+            $mediumCount = count(array_filter($students, fn($s) => $s['face_detected'] && $s['level'] === 'medium'));
+            $lowCount    = count(array_filter($students, fn($s) => $s['face_detected'] && $s['level'] === 'low'));
+
+            $emotionCounts = [];
+            foreach ($snapshots as $s) {
+                if (($s['face_detected'] ?? true) && !empty($s['emotion'])) {
+                    $emotionCounts[$s['emotion']] = ($emotionCounts[$s['emotion']] ?? 0) + 1;
+                }
+            }
+
             $payload = [
-                'session_id' => $sessionId,
-                'timestamp'  => now()->toIso8601String(),
-                'class_avg'  => round($classAvg, 2),
-                'students'   => array_map(fn($s) => [
-                    'student_id'    => $s['student_id'],
-                    'score'         => round($s['engagement_score'], 2),
-                    'emotion'       => $s['emotion'] ?? null,
-                    'face_detected' => $s['face_detected'] ?? true,
-                    'gaze_on_board' => abs($s['gaze_yaw'] ?? 999) < 25,
-                    'level'         => match(true) {
-                        $s['engagement_score'] >= 75 => 'high',
-                        $s['engagement_score'] >= 50 => 'medium',
-                        default                       => 'low',
-                    },
-                ], $snapshots),
+                'session_id'       => $sessionId,
+                'timestamp'        => now()->toIso8601String(),
+                'class_avg'        => round($classAvg, 2),
+                'students_present' => $studentsPresent,
+                'students_total'   => count($snapshots),
+                'distribution'     => [
+                    'high'   => $highCount,
+                    'medium' => $mediumCount,
+                    'low'    => $lowCount,
+                ],
+                'emotions'         => $emotionCounts,
+                'students'         => $students,
             ];
 
             broadcast(new \App\Events\EngagementUpdated($sessionId, $payload));

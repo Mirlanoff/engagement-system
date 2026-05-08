@@ -10,10 +10,10 @@
       </div>
     </div>
 
-    <!-- Мини-сетка студентов (до 20 точек) -->
+    <!-- Мини-сетка студентов: реально обнаруженные → серые слоты до размера группы -->
     <div class="students-grid">
       <div
-        v-for="(student, i) in studentList"
+        v-for="(student, i) in detectedList"
         :key="student.student_id || i"
         class="student-dot"
         :class="dotClass(student.score)"
@@ -21,7 +21,6 @@
       >
         <div class="dot-fill" :style="{ height: student.score + '%' }"></div>
       </div>
-      <!-- Пустые слоты -->
       <div v-for="i in emptySlots" :key="'e'+i" class="student-dot empty"></div>
     </div>
 
@@ -31,7 +30,11 @@
         <div class="progress-fill" :class="scoreClass" :style="{ width: avg + '%' }"></div>
       </div>
       <div class="card-meta">
-        <span>{{ session.students_count || studentList.length }} студентов</span>
+        <span>
+          <span class="meta-strong">{{ detectedCount }}</span>
+          <span v-if="rosterSize"> / {{ rosterSize }}</span>
+          студентов
+        </span>
         <span>{{ duration }}</span>
       </div>
     </div>
@@ -50,12 +53,23 @@ defineEmits(['click'])
 
 const MAX_DOTS = 20
 
-const studentList = computed(() => {
+const detectedList = computed(() => {
   const list = Object.values(props.studentScores)
+    .filter(s => s.face_detected !== false)
   return list.slice(0, MAX_DOTS)
 })
 
-const emptySlots = computed(() => Math.max(0, MAX_DOTS - studentList.value.length))
+const detectedCount = computed(() =>
+  props.session.students_present
+    ?? Object.values(props.studentScores).filter(s => s.face_detected !== false).length
+)
+
+const rosterSize = computed(() => props.session.students_count || 0)
+
+const emptySlots = computed(() => {
+  const dots = Math.min(MAX_DOTS, Math.max(detectedList.value.length, rosterSize.value))
+  return Math.max(0, dots - detectedList.value.length)
+})
 
 const scoreClass = computed(() => {
   if (props.avg >= 75) return 'high'
@@ -140,4 +154,5 @@ const duration = computed(() => {
 .progress-fill.low    { background:linear-gradient(90deg,#dc2626,#ef4444); }
 
 .card-meta { display:flex; justify-content:space-between; font-size:11px; color:#475569; }
+.meta-strong { color:#cbd5e1; font-weight:600; }
 </style>

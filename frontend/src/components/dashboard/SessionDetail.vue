@@ -84,7 +84,9 @@ const props = defineProps({
 })
 defineEmits(['back'])
 
-const studentList = computed(() => Object.values(props.scores))
+const studentList = computed(() =>
+  Object.values(props.scores).filter(s => s.face_detected !== false)
+)
 
 const avgClass = computed(() => {
   if (props.avg >= 75) return 'success'
