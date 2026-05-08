@@ -58,6 +58,11 @@ export const alerts = {
   acknowledge: (id, note) => api.post(`/alerts/${id}/acknowledge`, { note }),
 }
 
+export const admin = {
+  resetDashboard: (keepCompleted = false) =>
+    api.post('/admin/reset-dashboard', { keep_completed: keepCompleted }),
+}
+
 export const recommendations = {
   list: () => api.get('/recommendations'),
   markRead: (id) => api.post(`/recommendations/${id}/read`),

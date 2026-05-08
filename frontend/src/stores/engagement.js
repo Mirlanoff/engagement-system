@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { sessions, alerts } from '@/api'
+import { sessions, alerts, admin } from '@/api'
 
 export const useEngagementStore = defineStore('engagement', () => {
   const activeSessions  = ref([])
@@ -42,6 +42,11 @@ export const useEngagementStore = defineStore('engagement', () => {
             .listen('.engagement.alert', (e) => {
               activeAlerts.value.unshift(e)
               if (e.severity === 'critical') playAlertSound()
+            })
+
+          echo.channel('dashboard')
+            .listen('.dashboard.reset', () => {
+              clearLocalState()
             })
 
           isConnected.value = true
@@ -126,10 +131,24 @@ export const useEngagementStore = defineStore('engagement', () => {
     echo = null
   }
 
+  function clearLocalState() {
+    activeSessions.value = []
+    studentScores.value  = {}
+    classAverages.value  = {}
+    activeAlerts.value   = []
+  }
+
+  async function resetDashboard({ keepCompleted = false } = {}) {
+    const { data } = await admin.resetDashboard(keepCompleted)
+    clearLocalState()
+    return data
+  }
+
   return {
     activeSessions, studentScores, classAverages,
     activeAlerts, isConnected, alertCount, criticalAlerts,
     connectWebSocket, subscribeToSession, unsubscribeFromSession,
     loadActiveSessions, loadActiveAlerts, acknowledgeAlert, disconnect,
+    resetDashboard, clearLocalState,
   }
 })
