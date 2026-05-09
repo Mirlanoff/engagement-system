@@ -86,6 +86,7 @@ def _analysis_to_dict(a: FaceAnalysis) -> dict:
         "emotion_score":       a.emotion_score,
         "head_pose_score":     a.head_pose_score,
         "presence_score":      a.presence_score,
+        "posture_score":       a.posture_score,
         "emotion":             a.emotion,
         "emotion_confidence":  a.emotion_confidence,
         "gaze_yaw":            a.gaze_yaw,
@@ -99,6 +100,13 @@ def _analysis_to_dict(a: FaceAnalysis) -> dict:
         "face_bbox_y":         a.face_bbox_y,
         "face_bbox_w":         a.face_bbox_w,
         "face_bbox_h":         a.face_bbox_h,
+        "posture_state":       a.posture_state,
+        "hand_raised":         a.hand_raised,
+        "attention_state":     a.attention_state,
+        "confidence_overall":  a.confidence_overall,
+        "not_detected_reason": a.not_detected_reason,
+        "frame_quality":       a.frame_quality,
+        "score_breakdown":     a.score_breakdown,
         "processing_time_ms":  a.processing_time_ms,
     }
 

@@ -11,7 +11,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.config import settings
-from app.ml.face_analyzer import FaceAnalyzer
+from app.ml.face_analyzer import FaceAnalyzer, reset_tracker
+from app.ml.scorer import FaceAnalysis
 from app.services.capture_manager import CaptureManager
 
 router = APIRouter()
@@ -64,6 +65,7 @@ async def start_capture(req: StartCaptureRequest):
 @router.post("/stop")
 async def stop_capture(req: SessionRequest):
     await manager.stop(req.session_id)
+    reset_tracker(req.session_id)
     logger.info("Capture stopped", session_id=req.session_id)
     return {"status": "stopped", "session_id": req.session_id}
 
@@ -82,10 +84,10 @@ async def resume_capture(req: SessionRequest):
 
 @router.post("/analyze-frame")
 async def analyze_frame(req: AnalyzeFrameRequest):
-    """
-    Синхронный анализ одного кадра, пришедшего из браузера учителя.
-    Вызывается из Laravel при ingest /api/v1/sessions/{id}/frames.
-    Сразу анализирует кадр и шлёт снэпшоты обратно в Laravel.
+    """Синхронный анализ одного кадра, пришедшего из браузера учителя.
+
+    Возвращает диагностику кадра, чтобы фронт мог показать причину
+    отсутствия лиц ("too_dark", "no_faces_in_fov" и т.п.).
     """
     captured_at = datetime.now(timezone.utc).isoformat()
     student_ids = req.student_ids or [req.session_id]
@@ -108,16 +110,27 @@ async def analyze_frame(req: AnalyzeFrameRequest):
     snapshots = [_analysis_to_snapshot(a) for a in analyses]
     pushed = _push_to_laravel(req.session_id, snapshots)
 
+    # Диагностика: общая на кадр (берём из первого анализа — frame_quality
+    # одинаковое для всех студентов одного кадра).
+    frame_quality = analyses[0].frame_quality if analyses else None
+    not_detected_reason = analyses[0].not_detected_reason if analyses else None
+    detected = sum(1 for a in analyses if a.face_detected)
+    missing_students = [a.student_id for a in analyses if not a.face_detected]
+
     return {
         "status": "ok",
         "session_id": req.session_id,
-        "faces": sum(1 for a in analyses if a.face_detected),
+        "frame_quality": frame_quality,
+        "not_detected_reason": not_detected_reason,
+        "faces_detected": detected,
+        "students_in_class": len(analyses),
+        "missing_students": missing_students,
         "snapshots": len(snapshots),
         "pushed_to_laravel": pushed,
     }
 
 
-def _analysis_to_snapshot(a) -> dict:
+def _analysis_to_snapshot(a: FaceAnalysis) -> dict:
     return {
         "student_id":          a.student_id,
         "camera_id":           a.camera_id,
@@ -127,6 +140,7 @@ def _analysis_to_snapshot(a) -> dict:
         "emotion_score":       a.emotion_score,
         "head_pose_score":     a.head_pose_score,
         "presence_score":      a.presence_score,
+        "posture_score":       a.posture_score,
         "emotion":             a.emotion,
         "emotion_confidence":  a.emotion_confidence,
         "gaze_yaw":            a.gaze_yaw,
@@ -136,6 +150,17 @@ def _analysis_to_snapshot(a) -> dict:
         "head_roll":           a.head_roll,
         "face_detected":       a.face_detected,
         "face_confidence":     a.face_confidence,
+        "face_bbox_x":         a.face_bbox_x,
+        "face_bbox_y":         a.face_bbox_y,
+        "face_bbox_w":         a.face_bbox_w,
+        "face_bbox_h":         a.face_bbox_h,
+        "posture_state":       a.posture_state,
+        "hand_raised":         a.hand_raised,
+        "attention_state":     a.attention_state,
+        "confidence_overall":  a.confidence_overall,
+        "not_detected_reason": a.not_detected_reason,
+        "frame_quality":       a.frame_quality,
+        "score_breakdown":     a.score_breakdown,
         "processing_time_ms":  a.processing_time_ms,
     }
 
@@ -143,8 +168,8 @@ def _analysis_to_snapshot(a) -> dict:
 def _push_to_laravel(session_id: str, snapshots: list) -> bool:
     """Отправляем снэпшоты в Laravel с HMAC подписью."""
     body = json.dumps({"session_id": session_id, "snapshots": snapshots})
-    ts   = str(int(time.time()))
-    sig  = hmac.new(
+    ts = str(int(time.time()))
+    sig = hmac.new(
         settings.laravel_api_secret.encode(),
         (ts + body).encode(),
         hashlib.sha256,
@@ -163,6 +188,11 @@ def _push_to_laravel(session_id: str, snapshots: list) -> bool:
         )
         resp.raise_for_status()
         return True
+    except httpx.HTTPStatusError as e:
+        logger.error("Laravel rejected snapshots",
+                     status=e.response.status_code,
+                     body=e.response.text[:200])
+        return False
     except Exception as e:
-        logger.warning("Laravel push failed", error=str(e), session_id=session_id)
+        logger.error("Failed to push to Laravel", error=str(e))
         return False
