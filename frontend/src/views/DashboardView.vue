@@ -75,7 +75,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore }       from '@/stores/auth'
 import { useEngagementStore } from '@/stores/engagement'
@@ -96,16 +96,33 @@ const currentTime     = ref('')
 
 // Урок, для которого сейчас открыта веб-камера учителя
 const capturingSession      = ref(null)
-const captureIntervalSeconds = 5
+const captureIntervalSeconds = 2
 
 const pageTitle = { overview: 'Активные уроки', session: 'Урок • Live', analytics: 'Аналитика', alerts: 'Алерты', history: 'История' }
 
-const navItems = computed(() => [
-  { id: 'overview',  label: 'Обзор',     icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>` },
-  { id: 'analytics', label: 'Аналитика', icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>` },
-  { id: 'alerts',    label: 'Алерты',    badge: engagementStore.alertCount || null, icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/></svg>` },
-  { id: 'history',   label: 'История',   icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>` },
-])
+const navItems = computed(() => {
+  const role  = authStore.user?.role
+  // Учителю — только Обзор, Алерты и История.
+  // Аналитику видят supervisor и admin.
+  const items = [
+    { id: 'overview',  label: 'Обзор',     icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>` },
+  ]
+  if (role === 'admin' || role === 'supervisor') {
+    items.push({ id: 'analytics', label: 'Аналитика', icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>` })
+  }
+  items.push(
+    { id: 'alerts',  label: 'Алерты',  badge: engagementStore.alertCount || null, icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/></svg>` },
+    { id: 'history', label: 'История', icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>` },
+  )
+  return items
+})
+
+// Если учителю активной была вкладка analytics (после смены роли) — сбрасываем
+watch(navItems, (items) => {
+  if (!items.find(i => i.id === activeView.value)) {
+    activeView.value = 'overview'
+  }
+}, { immediate: false })
 
 const userInitials = computed(() => (authStore.user?.name || '').split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase())
 const roleLabel    = computed(() => ({ admin: 'Администратор', supervisor: 'Супервайзер', teacher: 'Учитель' }[authStore.user?.role] || ''))
