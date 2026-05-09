@@ -188,11 +188,18 @@ class SessionService
             return;
         }
 
-        DB::transaction(function () use ($session, $snapshots) {
+        DB::transaction(function () use ($session, &$snapshots) {
+
+            // Каждому снэпшоту назначаем UUID до вставки, чтобы фронт мог
+            // потом запросить breakdown через /analytics/snapshots/{id}/breakdown.
+            foreach ($snapshots as &$snap) {
+                $snap['snapshot_id'] = (string) \Illuminate\Support\Str::uuid();
+            }
+            unset($snap);
 
             // Bulk insert снэпшотов
             $records = array_map(fn($s) => [
-                'id'                  => \Illuminate\Support\Str::uuid(),
+                'id'                  => $s['snapshot_id'],
                 'session_id'          => $session->id,
                 'student_id'          => $s['student_id'],
                 'classroom_id'        => $session->classroom_id,
@@ -252,11 +259,15 @@ class SessionService
                 'timestamp'  => now()->toIso8601String(),
                 'class_avg'  => round($classAvg, 2),
                 'students'   => array_map(fn($s) => [
-                    'student_id'    => $s['student_id'],
-                    'score'         => round($s['engagement_score'], 2),
-                    'emotion'       => $s['emotion'] ?? null,
-                    'face_detected' => $s['face_detected'] ?? true,
-                    'gaze_on_board' => abs($s['gaze_yaw'] ?? 999) < 25,
+                    'student_id'      => $s['student_id'],
+                    'score'           => round($s['engagement_score'], 2),
+                    'emotion'         => $s['emotion'] ?? null,
+                    'face_detected'   => $s['face_detected'] ?? true,
+                    'gaze_on_board'   => abs($s['gaze_yaw'] ?? 999) < 25,
+                    'attention_state' => $s['attention_state'] ?? null,
+                    'posture_state'   => $s['posture_state'] ?? null,
+                    'hand_raised'     => (bool) ($s['hand_raised'] ?? false),
+                    'snapshot_id'     => $s['snapshot_id'] ?? null,
                     'level'         => match(true) {
                         $s['engagement_score'] >= 75 => 'high',
                         $s['engagement_score'] >= 50 => 'medium',

@@ -30,6 +30,10 @@ export const auth = {
   logout: () => api.post('/auth/logout'),
 }
 
+export const classrooms = {
+  list: () => api.get('/classrooms'),
+}
+
 export const sessions = {
   active: () => api.get('/sessions/active'),
   list: (params) => api.get('/sessions', { params }),
@@ -46,10 +50,23 @@ export const sessions = {
 }
 
 export const analytics = {
-  overview: (params) => api.get('/analytics/overview', { params }),
-  heatmap: (classroomId, params) => api.get(`/analytics/heatmap/${classroomId}`, { params }),
-  student: (studentId, params) => api.get(`/analytics/students/${studentId}`, { params }),
-  compare: (data) => api.post('/analytics/compare', data),
+  // Тепловая карта вовлечённости класса (день × час)
+  heatmap: (classroomId, from, to) =>
+    api.get('/analytics/heatmap', { params: { classroom_id: classroomId, from, to } }),
+  // Сравнение нескольких классов за период
+  comparison: (classroomIds, from, to) =>
+    api.get('/analytics/comparison', {
+      params: { 'classroom_ids[]': classroomIds, from, to },
+    }),
+  // Тренды одного студента
+  studentTrends: (studentId, from, to) =>
+    api.get('/analytics/student-trends', { params: { student_id: studentId, from, to } }),
+  // Расшифровка одного снэпшота: score_breakdown + frame_quality + причины
+  snapshotBreakdown: (snapshotId) =>
+    api.get(`/analytics/snapshots/${snapshotId}/breakdown`),
+  // Последний еженедельный AI-отчёт по классу
+  weeklyInsights: (classroomId) =>
+    api.get('/analytics/weekly-insights', { params: { classroom_id: classroomId } }),
 }
 
 export const alerts = {
