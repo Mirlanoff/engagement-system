@@ -78,6 +78,82 @@ chmod +x scripts/manage.sh
 | Flower (Celery) | http://localhost:5555 |
 | Prometheus | http://localhost:9090 |
 | FastAPI docs (dev) | http://localhost:8001/docs |
+| Ollama (LLM) | http://localhost:11434 (внутри сети, не пробрасывается наружу) |
+
+## Локальный AI (Ollama)
+
+AI-рекомендации (еженедельные отчёты по классам, после-урочные сводки)
+работают полностью **on-premise** через локальный сервис `ollama`,
+который поднимается из `docker-compose.yml`. **Никакие данные не
+покидают школьный сервер.**
+
+### Первичная установка модели
+
+После первого `docker compose up -d`:
+
+```bash
+# Скачиваем рекомендованную модель (~5 GB, занимает несколько минут)
+docker compose exec ollama ollama pull qwen2.5:7b-instruct
+
+# Проверяем, что модель установлена
+docker compose exec ollama ollama list
+```
+
+### Альтернативные модели
+
+| Модель | Размер | Подходит для |
+|---|---|---|
+| `qwen2.5:7b-instruct` (по умолчанию) | ~4.7 GB | Лучшее качество JSON, русский язык |
+| `llama3.1:8b-instruct` | ~4.7 GB | Хорошая альтернатива, английский лучше русского |
+| `qwen2.5:14b-instruct` | ~8.7 GB | Если есть 24+ GB RAM — заметно лучше формулировки |
+| `phi3:mini` | ~2.2 GB | Слабый сервер; качество ниже, но запускается на 8 GB RAM |
+
+Чтобы переключиться на другую модель:
+
+```bash
+# 1. Скачиваем
+docker compose exec ollama ollama pull llama3.1:8b-instruct
+
+# 2. В .env устанавливаем
+OLLAMA_MODEL=llama3.1:8b-instruct
+
+# 3. Перезапускаем backend
+docker compose restart laravel queue scheduler
+```
+
+### Переменные окружения
+
+```dotenv
+# URL внутри docker-сети — менять обычно не нужно
+OLLAMA_URL=http://ollama:11434
+
+# Активная модель — должна быть pull-нута заранее
+OLLAMA_MODEL=qwen2.5:7b-instruct
+```
+
+### Расписание еженедельных отчётов
+
+Команда `php artisan recommendations:weekly` запускается планировщиком
+каждый понедельник в 08:00 (после-школьный, off-peak слот для тяжёлых
+LLM-запросов). Можно запустить вручную:
+
+```bash
+docker compose exec laravel php artisan recommendations:weekly
+# или для конкретного класса
+docker compose exec laravel php artisan recommendations:weekly --classroom=<uuid>
+```
+
+Полученный отчёт будет виден в дашборде на вкладке
+**Аналитика → AI-инсайты недели** (только для ролей `supervisor`
+и `admin`).
+
+## Роли
+
+| Роль | Доступ |
+|---|---|
+| `teacher` | Активные уроки, веб-камера для своего класса, алерты, история. **Без аналитики и AI-отчётов.** |
+| `supervisor` | + полная аналитика (heatmap, сравнение классов, тренды), AI-рекомендации, расшифровка скоринга по студентам. |
+| `admin` | Всё, что у supervisor, + админ-панель и сброс дашборда. |
 
 ## Структура проекта
 
