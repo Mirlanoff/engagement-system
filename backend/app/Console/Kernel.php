@@ -15,10 +15,12 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping()
             ->onFailure(fn () => \Log::error('Daily DB backup failed'));
 
-        // ── Еженедельные AI-отчёты по каждому классу (пятница 18:00) ─
+        // ── Еженедельные AI-отчёты по каждому классу (понедельник 08:00) ─
+        // Локальная Ollama-модель тяжёлая, поэтому держим вне учебных часов.
         $schedule->command('recommendations:weekly')
-            ->weeklyOn(5, '18:00')
-            ->withoutOverlapping();
+            ->weeklyOn(1, '08:00')
+            ->withoutOverlapping()
+            ->onFailure(fn () => \Log::error('Weekly recommendations job failed'));
 
         // ── Очистка старых снэпшотов (> 90 дней) в 03:00 ────────
         $schedule->command('engagement:prune --days=90')

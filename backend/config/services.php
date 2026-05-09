@@ -40,4 +40,9 @@ return [
         'secret' => env('ML_SERVICE_SECRET', ''),
     ],
 
+    'ollama' => [
+        'url'   => env('OLLAMA_URL', 'http://ollama:11434'),
+        'model' => env('OLLAMA_MODEL', 'qwen2.5:7b-instruct'),
+    ],
+
 ];
