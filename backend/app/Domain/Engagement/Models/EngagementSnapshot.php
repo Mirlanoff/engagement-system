@@ -18,11 +18,15 @@ class EngagementSnapshot extends Model
         'session_id', 'student_id', 'classroom_id', 'camera_id',
         'captured_at', 'engagement_score',
         'gaze_score', 'emotion_score', 'head_pose_score', 'presence_score',
+        'posture_score',
         'emotion', 'emotion_confidence',
         'gaze_yaw', 'gaze_pitch',
         'head_yaw', 'head_pitch', 'head_roll',
         'face_detected', 'face_confidence',
         'face_bbox_x', 'face_bbox_y', 'face_bbox_w', 'face_bbox_h',
+        'posture_state', 'hand_raised',
+        'attention_state', 'confidence_overall',
+        'not_detected_reason', 'frame_quality', 'score_breakdown',
         'processing_time_ms',
     ];
 
@@ -33,6 +37,7 @@ class EngagementSnapshot extends Model
         'emotion_score'        => 'decimal:2',
         'head_pose_score'      => 'decimal:2',
         'presence_score'       => 'decimal:2',
+        'posture_score'        => 'decimal:2',
         'emotion_confidence'   => 'decimal:3',
         'face_detected'        => 'boolean',
         'face_confidence'      => 'decimal:3',
@@ -41,6 +46,10 @@ class EngagementSnapshot extends Model
         'head_yaw'             => 'float',
         'head_pitch'           => 'float',
         'head_roll'            => 'float',
+        'hand_raised'          => 'boolean',
+        'confidence_overall'   => 'decimal:3',
+        'frame_quality'        => 'array',
+        'score_breakdown'      => 'array',
         'processing_time_ms'   => 'decimal:2',
     ];
 
