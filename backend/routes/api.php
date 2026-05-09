@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\AdminController;
+use App\Http\Controllers\Api\V1\AnalyticsController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\SessionController;
 use App\Http\Controllers\Api\V1\ClassroomController;
@@ -37,7 +38,15 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
     Route::get('alerts',             fn() => response()->json(['data' => []]));
     Route::get('alerts/active',      fn() => response()->json(['data' => []]));
     Route::get('recommendations',    fn() => response()->json(['data' => []]));
-    Route::get('analytics/overview', fn() => response()->json(['data' => []]));
+
+    // Аналитика — только для supervisor / admin
+    Route::middleware('role:admin,supervisor')->prefix('analytics')->group(function () {
+        Route::get('heatmap',                       [AnalyticsController::class, 'heatmap']);
+        Route::get('comparison',                    [AnalyticsController::class, 'comparison']);
+        Route::get('student-trends',                [AnalyticsController::class, 'studentTrends']);
+        Route::get('snapshots/{id}/breakdown',      [AnalyticsController::class, 'snapshotBreakdown']);
+        Route::get('weekly-insights',               [AnalyticsController::class, 'weeklyInsights']);
+    });
 });
 
 // ML internal

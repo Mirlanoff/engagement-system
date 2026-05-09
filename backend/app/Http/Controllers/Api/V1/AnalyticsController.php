@@ -2,152 +2,271 @@
 
 namespace App\Http\Controllers\Api\V1;
 
-use App\Domain\Engagement\Services\EngagementAggregatorService;
+use App\Domain\Recommendation\Models\AiRecommendation;
 use App\Http\Controllers\Controller;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 
+/**
+ * Аналитика для ролей supervisor и admin.
+ *
+ * Все эндпоинты подмонтированы в routes/api.php под middleware
+ * `auth:sanctum` + `role:admin,supervisor`.
+ */
 class AnalyticsController extends Controller
 {
-    public function __construct(
-        private readonly EngagementAggregatorService $aggregator,
-    ) {
-        $this->middleware('auth:sanctum');
-        $this->middleware('role:admin,supervisor');
-    }
+    // ── 1. Heatmap (день × час) ─────────────────────────────────
 
     /**
-     * GET /api/v1/analytics/overview
-     * Общий обзор школы за период
+     * GET /api/v1/analytics/heatmap?classroom_id=&from=&to=
      */
-    public function overview(Request $request): JsonResponse
+    public function heatmap(Request $request): JsonResponse
     {
         $request->validate([
-            'from' => 'required|date',
-            'to'   => 'required|date|after:from',
+            'classroom_id' => 'required|uuid',
+            'from'         => 'required|date',
+            'to'           => 'required|date|after_or_equal:from',
         ]);
 
-        $from = Carbon::parse($request->from)->startOfDay();
-        $to   = Carbon::parse($request->to)->endOfDay();
+        [$from, $to] = $this->parseRange($request);
 
-        $classroomIds = $request->user()->school
-            ->classrooms()->active()->pluck('id')->toArray();
-
-        $comparison = $this->aggregator->compareClassrooms($classroomIds, $from, $to);
-
-        // Общий тренд школы по дням
-        $dailyTrend = \DB::table('engagement_aggregates as ea')
-            ->whereIn('ea.classroom_id', $classroomIds)
-            ->whereBetween('ea.minute_at', [$from, $to])
-            ->selectRaw("DATE(ea.minute_at) as date, AVG(ea.avg_score) as avg_score")
-            ->groupByRaw("DATE(ea.minute_at)")
-            ->orderBy('date')
+        $rows = DB::table('engagement_snapshots')
+            ->where('classroom_id', $request->classroom_id)
+            ->whereBetween('captured_at', [$from, $to])
+            ->selectRaw("EXTRACT(DOW  FROM captured_at)::int as dow")
+            ->selectRaw("EXTRACT(HOUR FROM captured_at)::int as hour")
+            ->selectRaw('AVG(engagement_score) as avg_score')
+            ->selectRaw('COUNT(*) as samples')
+            ->groupByRaw('1, 2')
+            ->orderByRaw('1, 2')
             ->get();
 
-        return response()->json([
-            'period'      => ['from' => $from->toDateString(), 'to' => $to->toDateString()],
-            'classrooms'  => $comparison,
-            'daily_trend' => $dailyTrend,
-            'summary'     => [
-                'total_classrooms' => count($classroomIds),
-                'school_avg'       => round(collect($comparison)->avg('avg_score'), 2),
-                'best_classroom'   => collect($comparison)->first(),
-                'worst_classroom'  => collect($comparison)->last(),
-            ],
-        ]);
-    }
-
-    /**
-     * GET /api/v1/analytics/heatmap/{classroomId}
-     * Тепловая карта вовлечённости: день × час
-     */
-    public function heatmap(Request $request, string $classroomId): JsonResponse
-    {
-        $request->validate([
-            'from' => 'required|date',
-            'to'   => 'required|date',
+        $cells = $rows->map(fn ($r) => [
+            'dow'       => (int) $r->dow,
+            'hour'      => (int) $r->hour,
+            'avg_score' => round((float) $r->avg_score, 1),
+            'samples'   => (int) $r->samples,
         ]);
 
-        $from = Carbon::parse($request->from)->startOfDay();
-        $to   = Carbon::parse($request->to)->endOfDay();
-
-        $data = $this->aggregator->getEngagementHeatmap($classroomId, $from, $to);
-
         return response()->json([
-            'classroom_id' => $classroomId,
-            'period'       => ['from' => $from->toDateString(), 'to' => $to->toDateString()],
-            'data'         => $data,
+            'classroom_id' => $request->classroom_id,
+            'period'       => $this->periodPayload($from, $to),
+            'cells'        => $cells,
             'days'         => ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'],
         ]);
     }
 
+    // ── 2. Сравнение классов ─────────────────────────────────────
+
     /**
-     * GET /api/v1/analytics/students/{studentId}
-     * Персональная аналитика студента
+     * GET /api/v1/analytics/comparison?classroom_ids[]=...&from=&to=
      */
-    public function student(Request $request, string $studentId): JsonResponse
+    public function comparison(Request $request): JsonResponse
     {
         $request->validate([
-            'from' => 'required|date',
-            'to'   => 'required|date',
+            'classroom_ids'   => 'required|array|max:20',
+            'classroom_ids.*' => 'uuid',
+            'from'            => 'required|date',
+            'to'              => 'required|date|after_or_equal:from',
         ]);
 
-        $from  = Carbon::parse($request->from)->startOfDay();
-        $to    = Carbon::parse($request->to)->endOfDay();
-        $stats = $this->aggregator->getStudentStats($studentId, $from, $to);
+        [$from, $to] = $this->parseRange($request);
 
-        // История по урокам
-        $sessions = \App\Domain\Engagement\Models\EngagementSnapshot::forStudent($studentId)
-            ->whereBetween('captured_at', [$from, $to])
-            ->join('lesson_sessions', 'lesson_sessions.id', '=', 'engagement_snapshots.session_id')
-            ->selectRaw('
-                engagement_snapshots.session_id,
-                lesson_sessions.subject,
-                lesson_sessions.started_at,
-                AVG(engagement_snapshots.engagement_score) as avg_score,
-                COUNT(*) as snapshots
-            ')
-            ->groupBy('engagement_snapshots.session_id', 'lesson_sessions.subject', 'lesson_sessions.started_at')
-            ->orderBy('lesson_sessions.started_at')
+        $rows = DB::table('engagement_snapshots as es')
+            ->join('classrooms as c', 'c.id', '=', 'es.classroom_id')
+            ->whereIn('es.classroom_id', $request->classroom_ids)
+            ->whereBetween('es.captured_at', [$from, $to])
+            ->select('es.classroom_id', 'c.name as classroom_name')
+            ->selectRaw('AVG(es.engagement_score) as avg_score')
+            ->selectRaw('MIN(es.engagement_score) as min_score')
+            ->selectRaw('MAX(es.engagement_score) as max_score')
+            ->selectRaw('COUNT(*) as snapshots')
+            ->selectRaw('COUNT(DISTINCT es.session_id) as sessions')
+            ->groupBy('es.classroom_id', 'c.name')
+            ->orderByDesc('avg_score')
             ->get();
 
         return response()->json([
-            'student_id' => $studentId,
-            'period'     => ['from' => $from->toDateString(), 'to' => $to->toDateString()],
-            'stats'      => $stats,
-            'sessions'   => $sessions->map(fn ($s) => [
-                'session_id'  => $s->session_id,
-                'subject'     => $s->subject,
-                'date'        => Carbon::parse($s->started_at)->toDateString(),
-                'avg_score'   => round($s->avg_score, 2),
-                'snapshots'   => $s->snapshots,
+            'period'     => $this->periodPayload($from, $to),
+            'classrooms' => $rows->map(fn ($r) => [
+                'classroom_id'   => $r->classroom_id,
+                'classroom_name' => $r->classroom_name,
+                'avg_score'      => round((float) $r->avg_score, 1),
+                'min_score'      => round((float) $r->min_score, 1),
+                'max_score'      => round((float) $r->max_score, 1),
+                'snapshots'      => (int) $r->snapshots,
+                'sessions'       => (int) $r->sessions,
             ]),
         ]);
     }
 
+    // ── 3. Тренды по студенту ───────────────────────────────────
+
     /**
-     * GET /api/v1/analytics/compare
-     * Сравнение нескольких классов
+     * GET /api/v1/analytics/student-trends?student_id=&from=&to=
      */
-    public function compare(Request $request): JsonResponse
+    public function studentTrends(Request $request): JsonResponse
     {
         $request->validate([
-            'classroom_ids'   => 'required|array|max:10',
-            'classroom_ids.*' => 'uuid',
-            'from'            => 'required|date',
-            'to'              => 'required|date',
+            'student_id' => 'required|uuid',
+            'from'       => 'required|date',
+            'to'         => 'required|date|after_or_equal:from',
         ]);
 
-        $from = Carbon::parse($request->from)->startOfDay();
-        $to   = Carbon::parse($request->to)->endOfDay();
+        [$from, $to] = $this->parseRange($request);
 
-        $data = $this->aggregator->compareClassrooms(
-            $request->classroom_ids,
-            $from,
-            $to
-        );
+        $perDay = DB::table('engagement_snapshots')
+            ->where('student_id', $request->student_id)
+            ->whereBetween('captured_at', [$from, $to])
+            ->selectRaw("DATE(captured_at) as date")
+            ->selectRaw('AVG(engagement_score) as avg_score')
+            ->selectRaw('COUNT(*) as samples')
+            ->groupByRaw('1')
+            ->orderByRaw('1')
+            ->get()
+            ->map(fn ($r) => [
+                'date'      => (string) $r->date,
+                'avg_score' => round((float) $r->avg_score, 1),
+                'samples'   => (int) $r->samples,
+            ]);
 
-        return response()->json(['data' => $data]);
+        $sessions = DB::table('engagement_snapshots as es')
+            ->join('lesson_sessions as ls', 'ls.id', '=', 'es.session_id')
+            ->where('es.student_id', $request->student_id)
+            ->whereBetween('es.captured_at', [$from, $to])
+            ->selectRaw('es.session_id, ls.subject, ls.started_at, AVG(es.engagement_score) as avg_score')
+            ->groupBy('es.session_id', 'ls.subject', 'ls.started_at')
+            ->orderBy('ls.started_at')
+            ->get()
+            ->map(fn ($r) => [
+                'session_id' => $r->session_id,
+                'subject'    => $r->subject,
+                'date'       => Carbon::parse($r->started_at)->toDateString(),
+                'avg_score'  => round((float) $r->avg_score, 1),
+            ]);
+
+        return response()->json([
+            'student_id' => $request->student_id,
+            'period'     => $this->periodPayload($from, $to),
+            'per_day'    => $perDay,
+            'sessions'   => $sessions,
+        ]);
+    }
+
+    // ── 4. Breakdown одного снэпшота ────────────────────────────
+
+    /**
+     * GET /api/v1/analytics/snapshots/{id}/breakdown
+     *
+     * Расшифровывает score_breakdown, frame_quality, attention_state и
+     * причину not_detected_reason для конкретного снэпшота — это и есть
+     * "почему именно такая цифра" для отдельного момента.
+     */
+    public function snapshotBreakdown(string $id): JsonResponse
+    {
+        $snapshot = DB::table('engagement_snapshots')
+            ->where('id', $id)
+            ->first();
+
+        if (!$snapshot) {
+            return response()->json(['message' => 'Snapshot not found'], 404);
+        }
+
+        $breakdown = $this->decodeJsonField($snapshot->score_breakdown ?? null);
+        $quality   = $this->decodeJsonField($snapshot->frame_quality ?? null);
+
+        return response()->json([
+            'snapshot_id'         => $snapshot->id,
+            'session_id'          => $snapshot->session_id,
+            'student_id'          => $snapshot->student_id,
+            'captured_at'         => $snapshot->captured_at,
+            'engagement_score'    => $this->numOrNull($snapshot->engagement_score ?? null),
+            'attention_state'     => $snapshot->attention_state ?? null,
+            'face_detected'       => (bool) ($snapshot->face_detected ?? false),
+            'not_detected_reason' => $snapshot->not_detected_reason ?? null,
+            'frame_quality'       => $quality,
+            'score_breakdown'     => $breakdown,
+            'raw_components'      => [
+                'gaze_score'      => $this->numOrNull($snapshot->gaze_score ?? null),
+                'emotion_score'   => $this->numOrNull($snapshot->emotion_score ?? null),
+                'head_pose_score' => $this->numOrNull($snapshot->head_pose_score ?? null),
+                'presence_score'  => $this->numOrNull($snapshot->presence_score ?? null),
+                'posture_score'   => $this->numOrNull($snapshot->posture_score ?? null),
+            ],
+            'extras' => [
+                'emotion'        => $snapshot->emotion        ?? null,
+                'posture_state'  => $snapshot->posture_state  ?? null,
+                'hand_raised'    => (bool) ($snapshot->hand_raised ?? false),
+            ],
+        ]);
+    }
+
+    // ── 5. Weekly insights (последний AI-отчёт по классу) ──────
+
+    /**
+     * GET /api/v1/analytics/weekly-insights?classroom_id=
+     */
+    public function weeklyInsights(Request $request): JsonResponse
+    {
+        $request->validate([
+            'classroom_id' => 'required|uuid',
+        ]);
+
+        $rec = AiRecommendation::query()
+            ->where('classroom_id', $request->classroom_id)
+            ->where('type', 'weekly_analysis')
+            ->latest()
+            ->first();
+
+        if (!$rec) {
+            return response()->json([
+                'classroom_id' => $request->classroom_id,
+                'available'    => false,
+            ]);
+        }
+
+        return response()->json([
+            'classroom_id'  => $request->classroom_id,
+            'available'     => true,
+            'generated_at'  => $rec->created_at,
+            'content'       => $rec->content,
+            'key_insights'  => $rec->key_insights,
+            'action_items'  => $rec->action_items,
+            'data_summary'  => $rec->input_data_summary,
+            'model_used'    => $rec->model_used,
+        ]);
+    }
+
+    // ── helpers ──────────────────────────────────────────────────
+
+    private function parseRange(Request $request): array
+    {
+        return [
+            Carbon::parse($request->from)->startOfDay(),
+            Carbon::parse($request->to)->endOfDay(),
+        ];
+    }
+
+    private function periodPayload(Carbon $from, Carbon $to): array
+    {
+        return [
+            'from' => $from->toDateString(),
+            'to'   => $to->toDateString(),
+        ];
+    }
+
+    private function decodeJsonField(mixed $field): mixed
+    {
+        if ($field === null) return null;
+        if (is_array($field)) return $field;
+        $decoded = json_decode((string) $field, true);
+        return $decoded === null ? $field : $decoded;
+    }
+
+    private function numOrNull(mixed $v): ?float
+    {
+        return $v === null ? null : (float) $v;
     }
 }
