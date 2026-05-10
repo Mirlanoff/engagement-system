@@ -60,13 +60,17 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
+      - "443:443"
     volumes:
       - ./docker/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./docker/nginx/ssl:/etc/nginx/ssl:ro
+      - ./frontend/dist:/usr/share/nginx/html:ro
       - storage_data:/var/www/html/storage/app/public:ro
     depends_on:
       - laravel
     networks:
       - engagement_net
+      - monitoring_net
     logging:
       driver: "json-file"
       options:
@@ -154,7 +158,10 @@ services:
     networks:
       - engagement_net
 
-  # ── 5. VUE.JS — фронтенд (сборка + раздача через nginx) ─────
+  # ── 5. VUE.JS — фронтенд (one-shot билд в ./frontend/dist) ──
+  # Запускается только командой:
+  #   docker compose --profile build run --rm vue-builder npm run build
+  # Результат (./frontend/dist) раздаётся контейнером nginx выше.
   vue-builder:
     build:
       context: ./frontend
@@ -163,13 +170,10 @@ services:
     container_name: engage_vue_builder
     volumes:
       - ./frontend:/app
-      - ./docker/nginx/html:/app/dist
+      - /app/node_modules
     environment:
       VITE_API_URL: ${APP_URL:-https://localhost}/api
       VITE_PUSHER_APP_KEY: ${PUSHER_APP_KEY:-engagement_key}
-      VITE_PUSHER_HOST: ${APP_URL:-localhost}
-      VITE_PUSHER_PORT: 443
-      VITE_PUSHER_SCHEME: wss
     profiles:
       - build
     networks:
