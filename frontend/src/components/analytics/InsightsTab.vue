@@ -66,7 +66,7 @@ const insights = computed(() => {
     out.push({
       icon: '⚠️',
       tone: 'danger',
-      text: `Класс ${w.classroom_name} показывает худшие результаты (средний ${fmt(w.avg_score)}, макс ${fmt(w.max_score)}, сессий ${w.sessions_count}).`,
+      text: `${w.classroom_name} показывает худшие результаты (средний ${fmt(w.avg_score)}, макс ${fmt(w.max_score)}, сессий ${w.sessions_count}).`,
     })
   }
 
@@ -75,7 +75,7 @@ const insights = computed(() => {
     out.push({
       icon: '🏆',
       tone: 'success',
-      text: `Класс ${b.classroom_name} — лучший за период (средний ${fmt(b.avg_score)}, сессий ${b.sessions_count}).`,
+      text: `${b.classroom_name} — лучший за период (средний ${fmt(b.avg_score)}, сессий ${b.sessions_count}).`,
     })
   }
 
