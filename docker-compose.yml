@@ -187,7 +187,7 @@ services:
     container_name: engage_ml
     restart: unless-stopped
     environment:
-      LARAVEL_API_URL: http://laravel/api/internal
+      LARAVEL_API_URL: http://nginx/api/internal
       LARAVEL_API_SECRET: ${ML_SERVICE_SECRET}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
       CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/2
@@ -230,7 +230,7 @@ services:
       --queues=frame_analysis,scoring,alerts
       --hostname=worker@%h
     environment:
-      LARAVEL_API_URL: http://laravel/api/internal
+      LARAVEL_API_URL: http://nginx/api/internal
       LARAVEL_API_SECRET: ${ML_SERVICE_SECRET}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
       CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/2
