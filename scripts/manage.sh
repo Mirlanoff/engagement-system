@@ -41,7 +41,10 @@ gen_ssl() {
     mkdir -p docker/nginx/ssl
     if [ ! -f "docker/nginx/ssl/server.crt" ]; then
         log_info "Генерирую self-signed SSL сертификат..."
-        openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+        # MSYS_NO_PATHCONV=1 не даёт Git Bash на Windows превратить
+        # "/C=KG/ST=..." в виндовый путь. На Linux эта переменная
+        # просто игнорируется.
+        MSYS_NO_PATHCONV=1 openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
             -keyout docker/nginx/ssl/server.key \
             -out docker/nginx/ssl/server.crt \
             -subj "/C=KG/ST=Bishkek/O=School/CN=engagement-monitor" \
