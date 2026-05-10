@@ -89,7 +89,8 @@ class MlServiceClient
                 'X-Internal-Signature'   => $signature,
                 'X-Internal-Timestamp'   => $timestamp,
             ])
-            ->timeout(10)
+            ->timeout(30)->connectTimeout(5)
+
             ->withBody($body, 'application/json')
             ->post("{$this->baseUrl}{$path}");
 

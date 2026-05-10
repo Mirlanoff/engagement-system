@@ -9,6 +9,12 @@ class Kernel extends ConsoleKernel
 {
     protected function schedule(Schedule $schedule): void
     {
+           // ── Минутная агрегация (для live-дашборда) ─────────────
+        $schedule->call(fn() => include base_path('aggregate-now.php'))
+            ->everyMinute()
+            ->withoutOverlapping()
+            ->runInBackground();
+
         // ── Ежедневный бэкап БД в 02:00 ─────────────────────────
         $schedule->command('db:backup')
             ->dailyAt('02:00')
