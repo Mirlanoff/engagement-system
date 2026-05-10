@@ -64,6 +64,9 @@ install() {
     log_info "Сборка Docker образов..."
     $COMPOSE build --parallel
 
+    log_info "Сборка фронтенда (Vue)..."
+    $COMPOSE --profile build run --rm vue-builder npm run build
+
     log_info "Запуск БД и Redis..."
     $COMPOSE up -d postgres redis
     sleep 5
@@ -78,7 +81,17 @@ install() {
     $COMPOSE up -d
 
     log_success "=== Система установлена и запущена ==="
+    echo ""
+    log_info "Открой в браузере: https://localhost"
+    echo ""
     status
+}
+
+# ── Сборка фронтенда ────────────────────────────────────────────
+build_frontend() {
+    log_info "Сборка фронтенда (Vue build в ./frontend/dist)..."
+    $COMPOSE --profile build run --rm vue-builder npm run build
+    log_success "Фронтенд собран"
 }
 
 # ── Запуск ──────────────────────────────────────────────────────
@@ -107,11 +120,13 @@ status() {
     echo ""
     $COMPOSE ps
     echo ""
-    log_info "Адреса:"
-    echo "  Дашборд:   https://localhost"
-    echo "  Grafana:   https://localhost/grafana"
-    echo "  Flower:    http://localhost:5555"
-    echo "  Prometheus: http://localhost:9090"
+    log_info "Единая точка входа:"
+    echo "  https://localhost      — Дашборд (логин supervisor@school.kg / password)"
+    echo ""
+    log_info "Служебные инструменты (только для администратора):"
+    echo "  https://localhost/grafana — метрики системы"
+    echo "  http://localhost:5556     — Flower (Celery)"
+    echo "  http://localhost:9090     — Prometheus"
 }
 
 # ── Деплой (pull + rebuild + migrate) ───────────────────────────
@@ -224,17 +239,18 @@ help() {
 # ── Диспетчер ───────────────────────────────────────────────────
 CMD=${1:-help}
 case "$CMD" in
-    install)  install  ;;
-    start)    start    ;;
-    stop)     stop     ;;
-    restart)  restart  ;;
-    deploy)   deploy   ;;
-    status)   status   ;;
-    logs)     logs "$@"    ;;
-    backup)   backup   ;;
-    restore)  restore "$@" ;;
-    artisan)  artisan "$@" ;;
-    shell)    shell "$@"   ;;
-    test)     test     ;;
-    *)        help     ;;
+    install)       install  ;;
+    start)         start    ;;
+    stop)          stop     ;;
+    restart)       restart  ;;
+    deploy)        deploy   ;;
+    status)        status   ;;
+    logs)          logs "$@"    ;;
+    backup)        backup   ;;
+    restore)       restore "$@" ;;
+    artisan)       artisan "$@" ;;
+    shell)         shell "$@"   ;;
+    test)          test     ;;
+    build-frontend) build_frontend ;;
+    *)             help     ;;
 esac

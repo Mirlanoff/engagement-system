@@ -21,16 +21,22 @@ export const useEngagementStore = defineStore('engagement', () => {
         import('pusher-js').then(({ default: Pusher }) => {
           window.Pusher = Pusher
 
+          // WebSocket идёт через тот же nginx (location /app), что и сайт.
+          // Это снимает проблему mixed-content (ws:// со страницы https)
+          // и убирает необходимость пробрасывать Soketi-порт наружу.
+          const isHttps = window.location.protocol === 'https:'
+          const wsPort  = Number(window.location.port) || (isHttps ? 443 : 80)
+
           echo = new Echo({
             broadcaster:       'pusher',
             key:               import.meta.env.VITE_PUSHER_APP_KEY || 'engagement_key',
             wsHost:            window.location.hostname,
-            wsPort:            6001,
-            wssPort:           6001,
-            forceTLS:          false,
+            wsPort:            wsPort,
+            wssPort:           wsPort,
+            forceTLS:          isHttps,
             disableStats:      true,
-            cluster:           'mt1',          // ← обязательный параметр
-            enabledTransports: ['ws', 'wss'],
+            cluster:           'mt1',
+            enabledTransports: isHttps ? ['wss'] : ['ws', 'wss'],
           })
 
           echo.private(`school.${schoolId}`)
