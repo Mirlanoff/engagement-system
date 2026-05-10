@@ -84,12 +84,16 @@ class MlServiceClient
             $timestamp = (string) time();
             $signature = hash_hmac('sha256', $timestamp . $body, $this->secret);
 
+            // Таймаут 30s покрывает первый «холодный» вызов
+            // analyze-frame (загрузка моделей MediaPipe + DeepFace),
+            // особенно на Windows с bind-mount из NTFS.
             $response = Http::withHeaders([
                 'Content-Type'           => 'application/json',
                 'X-Internal-Signature'   => $signature,
                 'X-Internal-Timestamp'   => $timestamp,
             ])
-            ->timeout(10)
+            ->timeout(30)
+            ->connectTimeout(5)
             ->withBody($body, 'application/json')
             ->post("{$this->baseUrl}{$path}");
 

@@ -90,7 +90,18 @@ async def analyze_frame(req: AnalyzeFrameRequest):
     отсутствия лиц ("too_dark", "no_faces_in_fov" и т.п.).
     """
     captured_at = datetime.now(timezone.utc).isoformat()
-    student_ids = req.student_ids or [req.session_id]
+
+    # Если у класса нет привязанных студентов — нечего сохранять.
+    # Раньше тут был фолбэк на [req.session_id], но он приводил к
+    # FK-violation при вставке snapshots (student_id не существовал в БД).
+    if not req.student_ids:
+        return {
+            "status": "no_students",
+            "session_id": req.session_id,
+            "snapshots": 0,
+            "detail": "Classroom has no enrolled students; cannot map detected faces.",
+        }
+    student_ids = list(req.student_ids)
 
     try:
         analyses = analyzer.analyze_frame(
