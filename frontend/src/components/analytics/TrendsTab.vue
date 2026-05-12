@@ -16,27 +16,42 @@
       <p>Выберите другой диапазон дат, чтобы увидеть тренд.</p>
     </div>
 
-    <div v-else class="chart-card">
-      <div class="chart-card-header">
-        <h3>Средняя вовлечённость по дням</h3>
-        <span class="hint">{{ trend.length }} {{ daysLabel }}</span>
+    <template v-else>
+      <div class="chart-card">
+        <div class="chart-card-header">
+          <h3>Вовлечённость по дням</h3>
+          <span class="hint">
+            средняя {{ averageLabel }} · {{ trend.length }} {{ daysLabel }}
+          </span>
+        </div>
+        <div class="chart-wrap">
+          <Line :data="lineData" :options="lineOptions" />
+        </div>
       </div>
-      <div class="chart-wrap">
-        <Line :data="chartData" :options="chartOptions" />
+
+      <div class="chart-card">
+        <div class="chart-card-header">
+          <h3>Количество уроков по дням</h3>
+          <span class="hint">всего {{ totalSessions }} {{ sessionsWord(totalSessions) }}</span>
+        </div>
+        <div class="chart-wrap small">
+          <Bar :data="barData" :options="barOptions" />
+        </div>
       </div>
-    </div>
+    </template>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, watch, onMounted, inject } from 'vue'
-import { Line } from 'vue-chartjs'
+import { Line, Bar } from 'vue-chartjs'
 import {
   Chart as ChartJS,
   CategoryScale,
   LinearScale,
   PointElement,
   LineElement,
+  BarElement,
   Title,
   Tooltip,
   Legend,
@@ -45,7 +60,10 @@ import {
 import { analytics } from '@/api'
 import { useAnalyticsFilters } from '@/composables/useAnalyticsFilters'
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler)
+ChartJS.register(
+  CategoryScale, LinearScale, PointElement, LineElement, BarElement,
+  Title, Tooltip, Legend, Filler,
+)
 
 const { from, to } = useAnalyticsFilters()
 
@@ -60,35 +78,68 @@ const daysLabel = computed(() => {
   return 'дней'
 })
 
+const averageLabel = computed(() => {
+  const scores = trend.value.map(p => Number(p.avg_score) || 0).filter(v => v > 0)
+  if (!scores.length) return '—'
+  const avg = scores.reduce((a, b) => a + b, 0) / scores.length
+  return `${avg.toFixed(1)}%`
+})
+
+const totalSessions = computed(() =>
+  trend.value.reduce((s, p) => s + (Number(p.sessions_count) || 0), 0)
+)
+
+function sessionsWord(n) {
+  const m = Math.abs(Number(n) || 0) % 100
+  const lastDigit = m % 10
+  if (m >= 11 && m <= 14) return 'уроков'
+  if (lastDigit === 1)    return 'урок'
+  if (lastDigit >= 2 && lastDigit <= 4) return 'урока'
+  return 'уроков'
+}
+
 function formatRuDate(iso) {
   const d = new Date(iso)
   return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })
 }
 
-const chartData = computed(() => ({
+// ── Line chart: area-filled engagement trend ──────────────────
+const lineData = computed(() => ({
   labels: trend.value.map(p => formatRuDate(p.date)),
   datasets: [{
     label: 'Средний % вовлечённости',
-    data: trend.value.map(p => Number(p.avg_score)),
-    borderColor: '#6366f1',
-    backgroundColor: 'rgba(99,102,241,0.18)',
-    pointBackgroundColor: '#a5b4fc',
-    pointBorderColor: '#6366f1',
+    data: trend.value.map(p => Number(p.avg_score) || 0),
+    borderColor: '#22c55e',
+    backgroundColor: ctx => {
+      const { chart } = ctx
+      const { ctx: c, chartArea } = chart
+      if (!chartArea) return 'rgba(34,197,94,0.15)'
+      const grad = c.createLinearGradient(0, chartArea.top, 0, chartArea.bottom)
+      grad.addColorStop(0,    'rgba(34,197,94,0.45)')
+      grad.addColorStop(0.5,  'rgba(34,197,94,0.18)')
+      grad.addColorStop(1,    'rgba(34,197,94,0.00)')
+      return grad
+    },
+    pointBackgroundColor: '#bbf7d0',
+    pointBorderColor: '#22c55e',
+    pointBorderWidth: 2,
     pointRadius: 4,
     pointHoverRadius: 6,
-    tension: 0.3,
+    tension: 0.4,
     fill: true,
+    borderWidth: 2.5,
   }],
 }))
 
-const chartOptions = computed(() => ({
+const lineOptions = computed(() => ({
   responsive: true,
   maintainAspectRatio: false,
   plugins: {
     legend: { display: false },
     tooltip: {
+      displayColors: false,
       callbacks: {
-        label: ctx => `${ctx.parsed.y.toFixed(2)}%`,
+        label: ctx => ` ${ctx.parsed.y.toFixed(2)}%`,
       },
     },
   },
@@ -104,6 +155,46 @@ const chartOptions = computed(() => ({
       grid:  { color: 'rgba(255,255,255,0.06)' },
     },
   },
+  interaction: { mode: 'nearest', intersect: false },
+}))
+
+// ── Bar chart: sessions per day ───────────────────────────────
+const barData = computed(() => ({
+  labels: trend.value.map(p => formatRuDate(p.date)),
+  datasets: [{
+    label: 'Уроков',
+    data: trend.value.map(p => Number(p.sessions_count) || 0),
+    backgroundColor: 'rgba(99,102,241,0.55)',
+    hoverBackgroundColor: 'rgba(99,102,241,0.85)',
+    borderRadius: 4,
+    borderSkipped: false,
+    maxBarThickness: 32,
+  }],
+}))
+
+const barOptions = computed(() => ({
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: { display: false },
+    tooltip: {
+      displayColors: false,
+      callbacks: {
+        label: ctx => ` ${ctx.parsed.y} ${sessionsWord(ctx.parsed.y)}`,
+      },
+    },
+  },
+  scales: {
+    x: {
+      ticks: { color: '#94a3b8' },
+      grid:  { display: false },
+    },
+    y: {
+      beginAtZero: true,
+      ticks: { color: '#94a3b8', precision: 0 },
+      grid:  { color: 'rgba(255,255,255,0.05)' },
+    },
+  },
 }))
 
 async function load() {
@@ -114,6 +205,7 @@ async function load() {
     trend.value = (data.daily_trend || []).map(p => ({
       date: p.date,
       avg_score: Number(p.avg_score),
+      sessions_count: Number(p.sessions_count) || 0,
     }))
   } catch (e) {
     console.warn('trends load failed', e)
@@ -146,5 +238,6 @@ watch(refreshTrigger, () => load())
 .chart-card-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
 .chart-card-header h3 { font-size:14px; font-weight:600; color:#e2e8f0; margin:0; }
 .chart-card-header .hint { font-size:12px; color:#64748b; }
-.chart-wrap { position:relative; height:360px; }
+.chart-wrap { position:relative; height:340px; }
+.chart-wrap.small { height: 180px; }
 </style>
