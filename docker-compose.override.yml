@@ -1,81 +1,61 @@
 # ================================================================
 #  docker-compose.override.yml — ТОЛЬКО ДЛЯ РАЗРАБОТКИ
-#  Автоматически применяется поверх docker-compose.yml
-#  НЕ КОММИТЬ .env, НЕ ИСПОЛЬЗОВАТЬ В ПРОДАКШЕНЕ
+#  Автоматически применяется поверх docker-compose.yml.
+#
+#  ВАЖНО: не переопределяем nginx — основной compose уже собирает
+#  его из ./frontend/Dockerfile с вшитым Vue-билдом. Любые volumes
+#  здесь затирают webroot и дают пустую страницу / 403.
 # ================================================================
 
 services:
 
-  # nginx: монтируем собранный фронт + SSL-сертификаты, открываем 443
-  # для https://localhost. На localhost браузер всё равно отдаёт камеру
-  # и по http, но многие пользователи привыкли к https — поддерживаем оба.
-  nginx:
-    ports:
-      - "443:443"
-    volumes:
-      - ./docker/nginx/html:/usr/share/nginx/html:ro
-      - ./docker/nginx/ssl:/etc/nginx/ssl:ro
-
   laravel:
-    build:
-      target: production  # можно сменить на dev stage
     environment:
       APP_ENV: local
       APP_DEBUG: "true"
-    volumes:
-      - ./backend:/var/www/html  # hot reload исходников
     ports:
-      - "9000:9000"  # прямой доступ к PHP-FPM для отладки
+      - "127.0.0.1:9000:9000"
 
   ml-service:
     environment:
       LOG_LEVEL: DEBUG
-      FRAME_INTERVAL_SECONDS: "10"  # реже захватывать кадры
+      FRAME_INTERVAL_SECONDS: "10"
     ports:
-      - "8001:8001"  # прямой доступ к FastAPI docs
+      - "127.0.0.1:8001:8001"
     deploy:
       resources:
         limits:
-          cpus: "1.5"   # понижено с 4, чтобы запускалось на 2-CPU dev-машинах
+          cpus: "1.5"
           memory: 3g
 
   celery-worker:
     deploy:
       resources:
         limits:
-          cpus: "1.0"   # понижено с 4, чтобы запускалось на 2-CPU dev-машинах
+          cpus: "1.0"
           memory: 2g
 
   postgres:
     ports:
-      - "5432:5432"  # подключение из IDE (TablePlus, DBeaver)
+      - "127.0.0.1:5432:5432"
 
   redis:
     ports:
-      - "6379:6379"  # Redis Insight / redis-cli
+      - "127.0.0.1:6379:6379"
 
   soketi:
     environment:
       SOKETI_DEBUG: "1"
-    ports:
-      - "6001:6001"
 
-  flower:
-    ports:
-      - "5555:5555"
-
-  # Mailpit — перехват email в dev среде
   mailpit:
     image: axllent/mailpit:latest
     container_name: engage_mailpit
     ports:
-      - "1025:1025"
-      - "8025:8025"
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
     networks:
       - engagement_net
 
-  # RTSP-сервер для тестирования с веб-камерой ноутбука
-  # ffmpeg на хосте пушит поток с камеры → mediamtx → ml-service читает
   rtsp-server:
     image: bluenviron/mediamtx:latest
     container_name: engage_rtsp
@@ -85,6 +65,6 @@ services:
       MTX_RTSPADDRESS: ":8554"
       MTX_LOGLEVEL: info
     ports:
-      - "8554:8554"
+      - "127.0.0.1:8554:8554"
     networks:
       - engagement_net

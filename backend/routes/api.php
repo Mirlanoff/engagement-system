@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\AdminController;
+use App\Http\Controllers\Api\V1\AnalyticsController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\SessionController;
 use App\Http\Controllers\Api\V1\ClassroomController;
@@ -34,11 +35,17 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
     Route::post('admin/reset-dashboard', [AdminController::class, 'resetDashboard']);
 
     // Заглушки
-    Route::get('alerts',             fn() => response()->json(['data' => []]));
-    Route::get('alerts/active',      fn() => response()->json(['data' => []]));
-    Route::get('recommendations',    fn() => response()->json(['data' => []]));
-    Route::get('analytics/overview', fn() => response()->json(['data' => []]));
+    Route::get('alerts',          fn() => response()->json(['data' => []]));
+    Route::get('alerts/active',   fn() => response()->json(['data' => []]));
+    Route::get('recommendations', fn() => response()->json(['data' => []]));
+
+    // Analytics
+    Route::get ('analytics/overview',              [AnalyticsController::class, 'overview']);
+    Route::get ('analytics/heatmap/{classroomId}', [AnalyticsController::class, 'heatmap']);
+    Route::get ('analytics/students/{studentId}',  [AnalyticsController::class, 'student']);
+    Route::post('analytics/compare',               [AnalyticsController::class, 'compare']);
 });
+
 
 // ML internal
 Route::prefix('internal')->group(function () {

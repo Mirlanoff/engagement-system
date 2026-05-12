@@ -12,7 +12,9 @@ class AnalyticsController extends Controller
 {
     public function __construct(
         private readonly EngagementAggregatorService $aggregator,
-    ) {}
+    ) {
+        // Middleware удалены для упрощения тестирования/интеграции
+    }
 
     /**
      * GET /api/v1/analytics/overview
