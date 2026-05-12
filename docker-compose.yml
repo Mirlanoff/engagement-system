@@ -55,7 +55,13 @@ services:
 
   # ── 1. NGINX — reverse proxy + SSL termination ──────────────
   nginx:
-    image: nginx:1.25-alpine
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: production
+      args:
+        VITE_API_URL: ${APP_URL:-https://localhost}/api
+        VITE_PUSHER_APP_KEY: ${PUSHER_APP_KEY:-engagement_key}
     container_name: engage_nginx
     restart: unless-stopped
     ports:
@@ -64,7 +70,6 @@ services:
     volumes:
       - ./docker/nginx/conf.d:/etc/nginx/conf.d:ro
       - ./docker/nginx/ssl:/etc/nginx/ssl:ro
-      - ./frontend/dist:/usr/share/nginx/html:ro
       - storage_data:/var/www/html/storage/app/public:ro
     depends_on:
       - laravel
