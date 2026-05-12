@@ -17,7 +17,6 @@ class InternalMlController extends Controller
     public function __construct(
         private readonly SessionService $sessionService,
     ) {
-        $this->middleware('internal.api');
     }
 
     /**

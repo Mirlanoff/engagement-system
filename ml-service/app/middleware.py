@@ -35,7 +35,8 @@ class InternalAuthMiddleware(BaseHTTPMiddleware):
         body = await request.body()
         expected = hmac.new(
             settings.laravel_api_secret.encode(),
-            (timestamp + body.decode("utf-8", errors="")).encode(),
+            (timestamp + body.decode("utf-8", errors="replace")).encode(),
+
             hashlib.sha256,
         ).hexdigest()
 
