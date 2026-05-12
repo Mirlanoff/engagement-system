@@ -26,7 +26,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, inject } from 'vue'
 import { analytics } from '@/api'
 import { useAnalyticsFilters } from '@/composables/useAnalyticsFilters'
 
@@ -108,6 +108,10 @@ onMounted(() => {
 
 // On date change, refresh.
 watch([from, to], load)
+
+// Real-time refresh trigger from AnalyticsView (WebSocket / polling).
+const refreshTrigger = inject('analyticsRefreshTrigger', ref(0))
+watch(refreshTrigger, () => load())
 </script>
 
 <style scoped>

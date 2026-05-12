@@ -76,7 +76,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, inject } from 'vue'
 import api, { analytics } from '@/api'
 import { useAnalyticsFilters } from '@/composables/useAnalyticsFilters'
 
@@ -175,9 +175,12 @@ async function load() {
   }
 }
 
+const refreshTrigger = inject('analyticsRefreshTrigger', ref(0))
+
 onMounted(loadClassrooms)
 watch(selectedClassroomId, load)
 watch([from, to], () => { if (selectedClassroomId.value) load() })
+watch(refreshTrigger, () => { if (selectedClassroomId.value) load() })
 </script>
 
 <style scoped>

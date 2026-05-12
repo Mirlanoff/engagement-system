@@ -29,7 +29,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, inject } from 'vue'
 import { Line } from 'vue-chartjs'
 import {
   Chart as ChartJS,
@@ -123,8 +123,11 @@ async function load() {
   }
 }
 
+const refreshTrigger = inject('analyticsRefreshTrigger', ref(0))
+
 onMounted(load)
 watch([from, to], load)
+watch(refreshTrigger, () => load())
 </script>
 
 <style scoped>
