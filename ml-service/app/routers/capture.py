@@ -89,10 +89,9 @@ async def analyze_frame(req: AnalyzeFrameRequest):
     """
     captured_at = datetime.now(timezone.utc).isoformat()
     student_ids = req.student_ids or []
-if not student_ids:
-    logger.info("analyze_frame: no students bound to class, skipping", session_id=req.session_id)
-    return {"status": "no_students", "session_id": req.session_id, "snapshots": 0}
-
+    if not student_ids:
+        logger.info("analyze_frame: no students bound to class, skipping", session_id=req.session_id)
+        return {"status": "no_students", "session_id": req.session_id, "snapshots": 0}
 
     try:
         analyses = analyzer.analyze_frame(
