@@ -5,7 +5,9 @@ namespace App\Domain\Engagement\Services;
 use App\Domain\Session\Models\LessonSession;
 use App\Domain\Engagement\Models\EngagementSnapshot;
 use App\Domain\Engagement\Models\EngagementAggregate;
+use App\Events\AggregateUpdated;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
 
 class EngagementAggregatorService
@@ -17,7 +19,7 @@ class EngagementAggregatorService
         $minuteAt = Carbon::parse($snapshots[0]['captured_at'])->startOfMinute();
         $scores   = array_column($snapshots, 'engagement_score');
 
-        EngagementAggregate::updateOrCreate(
+        $aggregate = EngagementAggregate::updateOrCreate(
             [
                 'session_id'       => $session->id,
                 'minute_at'        => $minuteAt,
@@ -36,6 +38,21 @@ class EngagementAggregatorService
                 'low_engagement_count'   => count(array_filter($scores, fn($s) => $s < 50)),
             ]
         );
+
+        try {
+            broadcast(new AggregateUpdated([
+                'session_id'        => $aggregate->session_id,
+                'classroom_id'      => $aggregate->classroom_id,
+                'minute_at'         => $aggregate->minute_at?->toIso8601String(),
+                'avg_score'         => (float) $aggregate->avg_score,
+                'min_score'         => (float) $aggregate->min_score,
+                'max_score'         => (float) $aggregate->max_score,
+                'students_detected' => (int) $aggregate->students_detected,
+                'snapshots_count'   => (int) $aggregate->snapshots_count,
+            ]));
+        } catch (\Throwable $e) {
+            Log::warning('AggregateUpdated broadcast failed', ['error' => $e->getMessage()]);
+        }
     }
 
     // ── Итоговая статистика урока ────────────────────────────────
