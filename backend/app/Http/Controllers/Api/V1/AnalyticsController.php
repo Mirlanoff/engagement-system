@@ -39,7 +39,11 @@ class AnalyticsController extends Controller
         $dailyTrend = \DB::table('engagement_aggregates as ea')
             ->whereIn('ea.classroom_id', $classroomIds)
             ->whereBetween('ea.minute_at', [$from, $to])
-            ->selectRaw("DATE(ea.minute_at) as date, AVG(ea.avg_score) as avg_score")
+            ->selectRaw('
+                DATE(ea.minute_at)              as date,
+                AVG(ea.avg_score)               as avg_score,
+                COUNT(DISTINCT ea.session_id)   as sessions_count
+            ')
             ->groupByRaw("DATE(ea.minute_at)")
             ->orderBy('date')
             ->get();
@@ -54,6 +58,70 @@ class AnalyticsController extends Controller
                 'best_classroom'   => collect($comparison)->first(),
                 'worst_classroom'  => collect($comparison)->last(),
             ],
+        ]);
+    }
+
+    /**
+     * GET /api/v1/analytics/emotions
+     * Распределение эмоций и направления взгляда за период по школе.
+     * Учитываются только снэпшоты с face_detected = true.
+     */
+    public function emotions(Request $request): JsonResponse
+    {
+        $request->validate([
+            'from' => 'required|date',
+            'to'   => 'required|date|after:from',
+        ]);
+
+        $from = Carbon::parse($request->from)->startOfDay();
+        $to   = Carbon::parse($request->to)->endOfDay();
+
+        $classroomIds = $request->user()->school
+            ->classrooms()->active()->pluck('id')->toArray();
+
+        if (empty($classroomIds)) {
+            return response()->json([
+                'period'          => ['from' => $from->toDateString(), 'to' => $to->toDateString()],
+                'emotions'        => (object) [],
+                'gaze'            => ['on_board' => 0, 'right' => 0, 'left' => 0, 'unknown' => 0],
+                'total_snapshots' => 0,
+            ]);
+        }
+
+        $base = \DB::table('engagement_snapshots as es')
+            ->join('lesson_sessions as ls', 'ls.id', '=', 'es.session_id')
+            ->whereIn('ls.classroom_id', $classroomIds)
+            ->where('es.face_detected', true)
+            ->whereBetween('es.captured_at', [$from, $to]);
+
+        $emotions = (clone $base)
+            ->whereNotNull('es.emotion')
+            ->selectRaw('LOWER(es.emotion) as emotion, COUNT(*) as cnt')
+            ->groupBy('emotion')
+            ->orderByDesc('cnt')
+            ->pluck('cnt', 'emotion');
+
+        $gaze = (clone $base)
+            ->selectRaw('
+                COUNT(*) FILTER (WHERE es.gaze_yaw IS NOT NULL AND ABS(es.gaze_yaw) <= 15) as on_board,
+                COUNT(*) FILTER (WHERE es.gaze_yaw IS NOT NULL AND es.gaze_yaw >  15)        as right_side,
+                COUNT(*) FILTER (WHERE es.gaze_yaw IS NOT NULL AND es.gaze_yaw < -15)        as left_side,
+                COUNT(*) FILTER (WHERE es.gaze_yaw IS NULL)                                  as unknown_gaze
+            ')
+            ->first();
+
+        $total = (clone $base)->count();
+
+        return response()->json([
+            'period'          => ['from' => $from->toDateString(), 'to' => $to->toDateString()],
+            'emotions'        => $emotions->isEmpty() ? (object) [] : $emotions->all(),
+            'gaze'            => [
+                'on_board' => (int) ($gaze->on_board     ?? 0),
+                'right'    => (int) ($gaze->right_side   ?? 0),
+                'left'     => (int) ($gaze->left_side    ?? 0),
+                'unknown'  => (int) ($gaze->unknown_gaze ?? 0),
+            ],
+            'total_snapshots' => $total,
         ]);
     }
 

@@ -41,9 +41,9 @@ import HeatmapTab      from '@/components/analytics/HeatmapTab.vue'
 import InsightsTab     from '@/components/analytics/InsightsTab.vue'
 
 const tabs = [
-  { id: 'compare',  label: 'Сравнение классов', component: CompareTab  },
+  { id: 'compare',  label: 'Обзор периода',     component: CompareTab  },
   { id: 'trends',   label: 'Тренды',            component: TrendsTab   },
-  { id: 'heatmap',  label: 'Heatmap день×час',  component: HeatmapTab  },
+  { id: 'heatmap',  label: 'Эмоции и внимание', component: HeatmapTab  },
   { id: 'insights', label: 'AI инсайты',        component: InsightsTab },
 ]
 

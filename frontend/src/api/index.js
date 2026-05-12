@@ -47,6 +47,7 @@ export const sessions = {
 
 export const analytics = {
   overview: (params) => api.get('/analytics/overview', { params }),
+  emotions: (params) => api.get('/analytics/emotions', { params }),
   heatmap: (classroomId, params) => api.get(`/analytics/heatmap/${classroomId}`, { params }),
   student: (studentId, params) => api.get(`/analytics/students/${studentId}`, { params }),
   compare: (data) => api.post('/analytics/compare', data),
