@@ -16,8 +16,19 @@ class EngagementAggregatorService
 
     public function updateMinuteAggregate(LessonSession $session, array $snapshots): void
     {
-        $minuteAt = Carbon::parse($snapshots[0]['captured_at'])->startOfMinute();
-        $scores   = array_column($snapshots, 'engagement_score');
+        // Учитываем только снэпшоты, где реально найдено лицо —
+        // иначе нули от face_detected=false утопят средний engagement.
+        $detected = array_values(array_filter(
+            $snapshots,
+            fn ($s) => !empty($s['face_detected']),
+        ));
+
+        if (empty($detected)) {
+            return;
+        }
+
+        $minuteAt = Carbon::parse($detected[0]['captured_at'])->startOfMinute();
+        $scores   = array_column($detected, 'engagement_score');
 
         $aggregate = EngagementAggregate::updateOrCreate(
             [
