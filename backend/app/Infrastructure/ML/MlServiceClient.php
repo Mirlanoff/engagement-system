@@ -75,6 +75,19 @@ class MlServiceClient
         ]);
     }
 
+    /**
+     * Ask the ML service to extract a face embedding from a base64-encoded JPEG.
+     * Returns the parsed JSON response (with embedding + faces_count fields) or
+     * null if the call failed.
+     */
+    public function generateEmbedding(string $studentId, string $imageB64): ?array
+    {
+        return $this->postJson('/embeddings/generate', [
+            'student_id' => $studentId,
+            'image_b64'  => $imageB64,
+        ], timeout: 60);
+    }
+
     // ── Private ─────────────────────────────────────────────────
 
     private function post(string $path, array $data): bool
@@ -109,6 +122,46 @@ class MlServiceClient
                 'error' => $e->getMessage(),
             ]);
             return false;
+        }
+    }
+
+    /**
+     * Like post(), but returns the decoded JSON body (or null on failure)
+     * instead of a simple bool. Used for endpoints whose response payload
+     * we care about (e.g. /embeddings/generate).
+     */
+    private function postJson(string $path, array $data, int $timeout = 30): ?array
+    {
+        try {
+            $body      = json_encode($data);
+            $timestamp = (string) time();
+            $signature = hash_hmac('sha256', $timestamp . $body, $this->secret);
+
+            $response = Http::withHeaders([
+                'Content-Type'         => 'application/json',
+                'X-Internal-Signature' => $signature,
+                'X-Internal-Timestamp' => $timestamp,
+            ])
+            ->timeout($timeout)
+            ->connectTimeout(5)
+            ->withBody($body, 'application/json')
+            ->post("{$this->baseUrl}{$path}");
+
+            if ($response->failed()) {
+                Log::warning("ML service request failed: {$path}", [
+                    'status' => $response->status(),
+                    'body'   => $response->body(),
+                ]);
+                return null;
+            }
+
+            return $response->json();
+
+        } catch (\Throwable $e) {
+            Log::error("ML service communication error: {$path}", [
+                'error' => $e->getMessage(),
+            ]);
+            return null;
         }
     }
 
