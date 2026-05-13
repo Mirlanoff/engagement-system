@@ -7,9 +7,7 @@
       @started="onSessionStarted"
     />
 
-    <!-- ─────────────────────────────────────────────────────────
-         State 1: нет активных уроков
-         ───────────────────────────────────────────────────────── -->
+    <!-- State 1: no active lessons -->
     <div v-if="sessions.length === 0" class="empty-state">
       <div class="empty-icon">📹</div>
       <h2 class="empty-title">Нет активных уроков</h2>
@@ -24,10 +22,10 @@
       </p>
     </div>
 
-    <!-- ─────────────────────────────────────────────────────────
-         States 2 + 3: список активных уроков, при клике
-         карточка раскрывается на месте.
-         ───────────────────────────────────────────────────────── -->
+    <!--
+      State 2: active lesson cards only.
+      Per-student analytics lives on the «Аналитика» tab.
+    -->
     <div v-else class="sessions-area">
       <div class="top-bar">
         <h2 class="top-title">Активные уроки</h2>
@@ -39,32 +37,23 @@
         </button>
       </div>
 
-      <div class="sessions-grid">
-        <template v-for="session in sessions" :key="session.id">
-          <div
-            v-if="expandedId !== session.id"
-            class="grid-cell"
-          >
-            <SessionCard
-              :session="session"
-              :class-avg="averages[session.id] || 0"
-              :student-scores="scores[session.id] || {}"
-              @click="expand(session.id)"
-            />
-          </div>
+      <p class="hint">
+        Подробная статистика по студентам — на вкладке
+        <span class="hint-tab">«Аналитика»</span>.
+      </p>
 
-          <div
-            v-else
-            class="grid-cell expanded"
-          >
-            <LessonDetail
-              :session="session"
-              :class-avg="averages[session.id] || 0"
-              :student-scores="scores[session.id] || {}"
-              @collapse="collapse(session.id)"
-            />
-          </div>
-        </template>
+      <div class="sessions-grid">
+        <div
+          v-for="session in sessions"
+          :key="session.id"
+          class="grid-cell"
+        >
+          <SessionCard
+            :session="session"
+            :class-avg="averages[session.id] || 0"
+            :student-scores="scores[session.id] || {}"
+          />
+        </div>
       </div>
     </div>
 
@@ -76,7 +65,6 @@ import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useEngagementStore } from '@/stores/engagement'
 import { sessions as sessionsApi } from '@/api'
 import SessionCard       from './SessionCard.vue'
-import LessonDetail      from './LessonDetail.vue'
 import StartSessionModal from './StartSessionModal.vue'
 
 const props = defineProps({
@@ -88,7 +76,6 @@ const emit = defineEmits(['select', 'refresh', 'session-started'])
 
 const engagementStore = useEngagementStore()
 const showModal       = ref(false)
-const expandedId      = ref(null)
 const todayCount      = ref(0)
 
 function onSessionStarted(session) {
@@ -96,9 +83,7 @@ function onSessionStarted(session) {
   emit('session-started', session)
 }
 
-// ── Подписка на live-данные для всех активных уроков ───────────
-// Карточки сами должны показывать актуальную среднюю —
-// поэтому подписываемся к каждому уроку как только он появляется.
+// Keep cards live-updated: subscribe to every active session.
 const subscribed = new Set()
 
 watch(
@@ -110,26 +95,10 @@ watch(
         subscribed.add(s.id)
       }
     }
-    // Если раскрытый урок больше не активен — сворачиваем
-    if (expandedId.value && !props.sessions.find(s => s.id === expandedId.value)) {
-      expandedId.value = null
-    }
   },
   { immediate: true },
 )
 
-function expand(sessionId) {
-  expandedId.value = sessionId
-  // На всякий случай переподписываемся (idempotent в store)
-  engagementStore.subscribeToSession(sessionId)
-  emit('select', props.sessions.find(s => s.id === sessionId))
-}
-
-function collapse() {
-  expandedId.value = null
-}
-
-// ── Сводка "сегодня" для пустого состояния ────────────────────
 async function loadTodayCount() {
   try {
     const { data } = await sessionsApi.list({ status: 'completed' })
@@ -145,11 +114,11 @@ async function loadTodayCount() {
 }
 
 function pluralLesson(n) {
-  const m10 = n % 10
+  const m10  = n % 10
   const m100 = n % 100
   if (m100 >= 11 && m100 <= 14) return 'уроков'
-  if (m10 === 1) return 'урок'
-  if (m10 >= 2 && m10 <= 4) return 'урока'
+  if (m10 === 1)                return 'урок'
+  if (m10 >= 2 && m10 <= 4)     return 'урока'
   return 'уроков'
 }
 
@@ -166,10 +135,10 @@ onBeforeUnmount(() => {
 .live-overview {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 18px;
 }
 
-/* ── Empty state ────────────────────────────────────────────── */
+/* Empty state */
 .empty-state {
   display: flex;
   flex-direction: column;
@@ -179,7 +148,7 @@ onBeforeUnmount(() => {
   gap: 16px;
   text-align: center;
 }
-.empty-icon { font-size: 64px; opacity: 0.85; }
+.empty-icon  { font-size: 56px; opacity: 0.85; }
 .empty-title {
   font-size: 22px;
   font-weight: 600;
@@ -190,7 +159,7 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  padding: 14px 28px;
+  padding: 14px 30px;
   background: linear-gradient(135deg,#6366f1,#8b5cf6);
   border: none;
   border-radius: 12px;
@@ -201,41 +170,44 @@ onBeforeUnmount(() => {
   font-family: inherit;
   transition: all 0.2s ease;
   box-shadow: 0 8px 24px rgba(99,102,241,0.35);
-  margin-top: 6px;
+  margin-top: 10px;
 }
 .start-btn-big:hover  { transform: translateY(-1px); box-shadow: 0 10px 28px rgba(99,102,241,0.45); }
 .start-btn-big:active { transform: translateY(0); }
 .start-btn-big svg    { width: 18px; height: 18px; }
 
 .today-summary {
-  font-size: 13px;
+  margin-top: 6px;
   color: #64748b;
-  margin: 8px 0 0;
+  font-size: 13px;
 }
 
-/* ── Top bar ────────────────────────────────────────────────── */
+/* Sessions area */
+.sessions-area {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
 .top-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 10px;
 }
 .top-title {
-  font-size: 15px;
+  font-size: 18px;
   font-weight: 600;
-  color: #cbd5e1;
+  color: #f1f5f9;
   margin: 0;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 .start-btn {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 18px;
+  padding: 9px 16px;
   background: linear-gradient(135deg,#6366f1,#8b5cf6);
   border: none;
-  border-radius: 10px;
+  border-radius: 9px;
   color: white;
   font-size: 13px;
   font-weight: 600;
@@ -243,28 +215,29 @@ onBeforeUnmount(() => {
   font-family: inherit;
   transition: all 0.2s ease;
 }
-.start-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(99,102,241,0.35); }
-.start-btn svg   { width: 14px; height: 14px; }
+.start-btn:hover  { transform: translateY(-1px); }
+.start-btn svg    { width: 14px; height: 14px; }
 
-/* ── Sessions grid ──────────────────────────────────────────── */
+.hint {
+  margin: 0;
+  font-size: 12.5px;
+  color: #64748b;
+}
+.hint-tab {
+  color: #cbd5e1;
+  font-weight: 600;
+}
+
 .sessions-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-  gap: 16px;
+  grid-template-columns: 1fr;
+  gap: 14px;
 }
-.grid-cell {
-  display: flex;
-  flex-direction: column;
-  transition: all 0.3s ease;
+@media (min-width: 1100px) {
+  .sessions-grid { grid-template-columns: 1fr 1fr; }
 }
-.grid-cell.expanded {
-  grid-column: 1 / -1;
-}
-
 @media (min-width: 1600px) {
-  .sessions-grid { grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); }
+  .sessions-grid { grid-template-columns: 1fr 1fr 1fr; }
 }
-@media (max-width: 900px) {
-  .sessions-grid { grid-template-columns: 1fr; }
-}
+.grid-cell { min-width: 0; }
 </style>
