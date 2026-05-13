@@ -38,12 +38,14 @@ import DateRangePicker from '@/components/analytics/DateRangePicker.vue'
 import CompareTab      from '@/components/analytics/CompareTab.vue'
 import TrendsTab       from '@/components/analytics/TrendsTab.vue'
 import HeatmapTab      from '@/components/analytics/HeatmapTab.vue'
+import StudentsTab     from '@/components/analytics/StudentsTab.vue'
 import InsightsTab     from '@/components/analytics/InsightsTab.vue'
 
 const tabs = [
   { id: 'compare',  label: 'Обзор периода',     component: CompareTab  },
   { id: 'trends',   label: 'Тренды',            component: TrendsTab   },
   { id: 'heatmap',  label: 'Эмоции и внимание', component: HeatmapTab  },
+  { id: 'students', label: 'Студенты',          component: StudentsTab },
   { id: 'insights', label: 'AI инсайты',        component: InsightsTab },
 ]
 
