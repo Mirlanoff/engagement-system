@@ -50,6 +50,7 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
     Route::get ('analytics/overview',              [AnalyticsController::class, 'overview']);
     Route::get ('analytics/emotions',              [AnalyticsController::class, 'emotions']);
     Route::get ('analytics/heatmap/{classroomId}', [AnalyticsController::class, 'heatmap']);
+    Route::get ('analytics/students',              [AnalyticsController::class, 'students']);
     Route::get ('analytics/students/{studentId}',  [AnalyticsController::class, 'student']);
     Route::post('analytics/compare',               [AnalyticsController::class, 'compare']);
 });
