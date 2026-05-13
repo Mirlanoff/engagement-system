@@ -11,11 +11,14 @@ Pillow==10.3.0
 
 # Face analysis
 mediapipe==0.10.14
-# Real face-recognition embeddings (Facenet 128-dim). tf-keras pulls in
-# TensorFlow ~2.16; model weights are cached to /app/models_cache via
-# DEEPFACE_HOME so they survive container restarts.
-deepface==0.0.93
-tf-keras==2.16.0
+# Real face-recognition embeddings (ArcFace, 512-dim) via InsightFace.
+# Runs on CPU through ONNX Runtime — far lighter than the TensorFlow
+# stack DeepFace required (~500MB → ~150MB image impact, ~5x faster
+# inference). Model weights for the bundled `buffalo_l` pack (detection
+# + recognition) are cached to /app/models_cache via INSIGHTFACE_HOME so
+# they survive container restarts.
+insightface==0.7.3
+onnxruntime==1.18.1
 
 # Async задачи
 celery==5.4.0

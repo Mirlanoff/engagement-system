@@ -17,13 +17,13 @@ from app.ml.scorer import FaceAnalysis, EngagementScorer
 logger = structlog.get_logger()
 scorer = EngagementScorer()
 
-# Recognition threshold for live frame analysis. Tuned for the DeepFace
-# Facenet embedding: same person across angles/lighting gives 0.7-0.95
-# cosine similarity, different people typically 0.1-0.4. 0.6 is a safe
-# default that admits the same student under varied conditions while
-# rejecting strangers. Tunable via env var.
+# Recognition threshold for live frame analysis. Tuned for the InsightFace
+# ArcFace embedding (buffalo_l): same person across angles/lighting gives
+# 0.5-0.8 cosine similarity, different people typically 0.0-0.25. 0.4 is
+# a safe default that admits the same student under varied conditions
+# while rejecting strangers. Tunable via env var.
 FACE_RECOGNITION_THRESHOLD = float(
-    os.environ.get("FACE_RECOGNITION_THRESHOLD", "0.6")
+    os.environ.get("FACE_RECOGNITION_THRESHOLD", "0.4")
 )
 
 

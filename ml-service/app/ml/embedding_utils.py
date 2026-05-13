@@ -2,29 +2,30 @@
 Shared face-embedding utilities.
 
 This module is the single source of truth for the face embedding used by
-the engagement system. Both `/embeddings/generate` (one-shot registration
-from a static photo) and `/capture/analyze-frame` (per-frame live
+the engagement system. Both ``/embeddings/generate`` (one-shot registration
+from a static photo) and ``/capture/analyze-frame`` (per-frame live
 recognition) route through :func:`compute_embedding`, so the two code
 paths always produce vectors in the same space.
 
-Primary path — DeepFace Facenet (128-dim). The embedding is computed from
-the raw face crop (BGR numpy array) using ``DeepFace.represent(model_name="Facenet",
-detector_backend="skip")`` — we hand DeepFace an already-detected face so
-it doesn't try to detect it again. Facenet returns a 128-dim vector that
-is highly discriminative: same person ≳ 0.7 cosine similarity, different
-people ≲ 0.4. Models are cached in ``DEEPFACE_HOME`` (set to
+Primary path — InsightFace ArcFace (``buffalo_l`` model, 512-dim). The
+embedding is computed from the raw face crop (BGR numpy array) using
+:meth:`insightface.app.FaceAnalysis.get`, which runs ArcFace and returns
+``normed_embedding`` (already L2-normalised). ArcFace is highly
+discriminative: same person ≳ 0.5 cosine similarity, different people
+≲ 0.25. Models are cached in ``INSIGHTFACE_HOME`` (set to
 ``/app/models_cache`` in the Dockerfile, which is mounted as a docker
 volume so weights survive restarts).
 
-Fallback path — geometric. Used only when DeepFace cannot be imported
-(e.g. minimal CI containers without TensorFlow). Builds a deterministic
-128-dim L2-normalised vector from MediaPipe FaceMesh landmark distances
-and nose-relative angles. NOT identity-discriminative — kept only so the
-endpoint stays callable when DeepFace isn't installed.
+Fallback path — geometric. Used only when InsightFace cannot be imported
+or its initialisation fails. Builds a deterministic 512-dim L2-normalised
+vector from MediaPipe FaceMesh landmark distances and nose-relative
+angles. NOT identity-discriminative — kept only so the endpoint stays
+callable when InsightFace isn't installed.
 """
 
+import os
 import threading
-from typing import Iterable, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence
 
 import cv2
 import numpy as np
@@ -32,70 +33,73 @@ import structlog
 
 logger = structlog.get_logger()
 
-EMBEDDING_DIM = 128
-FACENET_INPUT_SIZE = 160  # Facenet expects 160x160 inputs.
+EMBEDDING_DIM = 512
 
 # Representative subset of FaceMesh landmark indices used for the fallback
 # geometric embedding. Symmetric across both halves of the face so the
 # embedding stays stable if a handful of landmarks are missing.
 _KEY_INDICES = [1, 33, 61, 133, 152, 159, 234, 263, 291, 362, 386, 454]
 
-# Lazy-loaded DeepFace state. "facenet" = ready to call, "fallback" =
-# DeepFace import failed and we should use the geometric path, None =
-# untouched.
-_facenet_state: Optional[str] = None
-_facenet_lock = threading.Lock()
-
-
-def _get_facenet_model() -> str:
-    """
-    Resolve the DeepFace Facenet model lazily. Returns ``"facenet"`` when
-    the library is importable and a warm-up call succeeds, or
-    ``"fallback"`` when we have to use the geometric embedding instead.
-
-    Heavy by design: the first call downloads the Facenet weights
-    (~90 MB) into ``DEEPFACE_HOME``. Subsequent calls return immediately.
-    Thread-safe — only one warm-up runs even under concurrent requests.
-    """
-    global _facenet_state
-    if _facenet_state is not None:
-        return _facenet_state
-
-    with _facenet_lock:
-        if _facenet_state is not None:
-            return _facenet_state
-        try:
-            from deepface import DeepFace  # noqa: F401  # import probe
-
-            logger.info(
-                "embedding: warming up DeepFace Facenet "
-                "(first call may download ~90MB to DEEPFACE_HOME)"
-            )
-            dummy = np.zeros(
-                (FACENET_INPUT_SIZE, FACENET_INPUT_SIZE, 3),
-                dtype=np.uint8,
-            )
-            DeepFace.represent(
-                img_path=dummy,
-                model_name="Facenet",
-                enforce_detection=False,
-                detector_backend="skip",
-            )
-            _facenet_state = "facenet"
-            logger.info("embedding: Facenet model ready")
-        except Exception as exc:
-            logger.warning(
-                "embedding: DeepFace unavailable, falling back to geometric embedding",
-                error=str(exc),
-            )
-            _facenet_state = "fallback"
-
-    return _facenet_state
+# Lazy-loaded InsightFace state. A FaceAnalysis instance when ready,
+# the sentinel string "geometric_fallback" when InsightFace couldn't be
+# imported/initialised, or None before the first call.
+_face_model = None
+_face_model_lock = threading.Lock()
 
 
 def warmup() -> None:
-    """Trigger DeepFace warm-up. Safe to call from FastAPI lifespan."""
-    _get_facenet_model()
+    """Trigger model load. Safe to call from FastAPI lifespan."""
+    _get_model()
+
+
+def _get_model():
+    """
+    Resolve the InsightFace model lazily. Returns the FaceAnalysis
+    instance when ready, or the string ``"geometric_fallback"`` when we
+    have to use the geometric embedding instead.
+
+    Heavy by design: the first call downloads the ``buffalo_l`` weights
+    (~300 MB) into ``INSIGHTFACE_HOME``. Subsequent calls return
+    immediately. Thread-safe — only one warm-up runs even under concurrent
+    requests.
+    """
+    global _face_model
+    if _face_model is not None:
+        return _face_model
+
+    with _face_model_lock:
+        if _face_model is not None:
+            return _face_model
+        try:
+            from insightface.app import FaceAnalysis
+
+            model_dir = os.environ.get("INSIGHTFACE_HOME", "/app/models_cache")
+            os.makedirs(model_dir, exist_ok=True)
+            os.environ["INSIGHTFACE_HOME"] = model_dir
+
+            # 'buffalo_l' bundles RetinaFace detection + ArcFace recognition.
+            app = FaceAnalysis(
+                name="buffalo_l",
+                root=model_dir,
+                providers=["CPUExecutionProvider"],
+            )
+            app.prepare(ctx_id=-1, det_size=(160, 160))
+            _face_model = app
+            logger.info("embedding: InsightFace ArcFace model loaded")
+        except ImportError as exc:
+            logger.warning(
+                "embedding: InsightFace unavailable, falling back to geometric",
+                error=str(exc),
+            )
+            _face_model = "geometric_fallback"
+        except Exception as exc:
+            logger.warning(
+                "embedding: InsightFace init failed, falling back to geometric",
+                error=str(exc),
+            )
+            _face_model = "geometric_fallback"
+
+    return _face_model
 
 
 def compute_embedding(
@@ -103,10 +107,11 @@ def compute_embedding(
     landmarks: Optional[Sequence] = None,
 ) -> List[float]:
     """
-    Compute a 128-dim face embedding.
+    Compute a 512-dim face embedding.
 
-    * When ``face_image`` (a BGR numpy face crop) is provided and DeepFace
-      is installed, use Facenet — the real, identity-discriminative path.
+    * When ``face_image`` (a BGR numpy face crop) is provided and
+      InsightFace is available, use ArcFace — the real,
+      identity-discriminative path.
     * Otherwise fall back to the geometric embedding derived from
       ``landmarks`` (each element must expose ``.x``, ``.y``, ``.z``).
     * If neither is usable, return a zero vector.
@@ -114,14 +119,15 @@ def compute_embedding(
     The returned vector is L2-normalised in both branches so cosine
     similarity reduces to a plain dot product.
     """
-    model = _get_facenet_model()
+    model = _get_model()
 
-    if model == "facenet" and face_image is not None and face_image.size > 0:
-        emb = _deepface_embedding(face_image)
-        if emb and any(abs(v) > 1e-12 for v in emb):
+    if model != "geometric_fallback" and face_image is not None:
+        emb = _insightface_embedding(face_image, model)
+        if emb is not None:
             return emb
         # Real-model embedding failed; fall through to geometric so the
-        # caller still gets a usable vector for non-recognition paths.
+        # caller still gets a non-None vector — registration validation
+        # will reject zero/short vectors downstream.
 
     if landmarks is not None:
         return _geometric_embedding(landmarks)
@@ -129,81 +135,75 @@ def compute_embedding(
     return [0.0] * EMBEDDING_DIM
 
 
-def _deepface_embedding(face_image: np.ndarray) -> List[float]:
-    """Compute the 128-dim Facenet embedding from a BGR face crop."""
+def _insightface_embedding(face_image: np.ndarray, app) -> Optional[List[float]]:
+    """Compute 512-dim ArcFace embedding using InsightFace."""
     try:
-        from deepface import DeepFace
-    except Exception as exc:  # pragma: no cover - guarded by _get_facenet_model
-        logger.warning("embedding: deepface import failed at call site", error=str(exc))
-        return []
+        if face_image is None or face_image.size == 0:
+            return None
 
-    if face_image is None or face_image.size == 0:
-        return []
-    if face_image.shape[0] < 10 or face_image.shape[1] < 10:
-        return []
+        # InsightFace expects a 3-channel BGR image.
+        if len(face_image.shape) == 2:
+            face_image = cv2.cvtColor(face_image, cv2.COLOR_GRAY2BGR)
+        elif face_image.shape[2] == 4:
+            face_image = cv2.cvtColor(face_image, cv2.COLOR_BGRA2BGR)
 
-    try:
-        resized = cv2.resize(face_image, (FACENET_INPUT_SIZE, FACENET_INPUT_SIZE))
-        result = DeepFace.represent(
-            img_path=resized,
-            model_name="Facenet",
-            enforce_detection=False,
-            detector_backend="skip",
+        h, w = face_image.shape[:2]
+        if h < 20 or w < 20:
+            return None
+
+        # We pass the crop; InsightFace re-detects internally and should
+        # find exactly one face.
+        faces = app.get(face_image)
+        if faces:
+            return faces[0].normed_embedding.tolist()
+
+        # Tight crops sometimes miss detection — retry with a black
+        # border that gives the detector some headroom.
+        padded = cv2.copyMakeBorder(
+            face_image, 30, 30, 30, 30,
+            cv2.BORDER_CONSTANT, value=(0, 0, 0),
         )
+        faces = app.get(padded)
+        if faces:
+            return faces[0].normed_embedding.tolist()
+
+        return None
     except Exception as exc:
-        logger.warning("embedding: DeepFace.represent failed", error=str(exc))
-        return []
-
-    if not result:
-        return []
-
-    raw = result[0].get("embedding") if isinstance(result, list) else None
-    if not raw or len(raw) != EMBEDDING_DIM:
-        return []
-
-    vec = np.asarray(raw, dtype=np.float64)
-    norm = float(np.linalg.norm(vec))
-    if norm > 0:
-        vec = vec / norm
-    return [float(x) for x in vec]
+        logger.warning("embedding: InsightFace embedding failed", error=str(exc))
+        return None
 
 
-def _geometric_embedding(
-    landmarks: Sequence,
-    indices_count: int = 478,
-) -> List[float]:
+def _geometric_embedding(landmarks: Sequence) -> List[float]:
     """
-    Deterministic 128-dim geometric embedding from MediaPipe FaceMesh
-    landmarks. Inter-landmark distances on a fixed key subset, plus
-    nose-relative angles, then L2-normalised. Not identity-discriminative
-    — used only when DeepFace is unavailable.
+    Fallback: 512-dim geometric embedding derived from MediaPipe landmark
+    distances and nose-relative angles. Not identity-discriminative.
     """
     if not landmarks or len(landmarks) < 10:
         return [0.0] * EMBEDDING_DIM
 
     coords = [
         (lm.x, lm.y, lm.z)
-        for lm in landmarks[: min(len(landmarks), indices_count)]
+        for lm in landmarks[: min(len(landmarks), 478)]
     ]
     available = [i for i in _KEY_INDICES if i < len(coords)]
 
     features: List[float] = []
     for i in range(len(available)):
-        if len(features) >= 100:
-            break
         for j in range(i + 1, len(available)):
-            if len(features) >= 100:
+            if len(features) >= 400:
                 break
             p1 = coords[available[i]]
             p2 = coords[available[j]]
             dist = float(np.sqrt(sum((a - b) ** 2 for a, b in zip(p1, p2))))
             features.append(dist)
+        if len(features) >= 400:
+            break
 
     nose = coords[1] if len(coords) > 1 else (0.5, 0.5, 0.0)
-    for idx in available[:28]:
+    for idx in available[:112]:
         if len(features) >= EMBEDDING_DIM:
             break
-        p = coords[idx]
+        p = coords[idx] if idx < len(coords) else (0.5, 0.5, 0.0)
         angle = float(np.arctan2(p[1] - nose[1], p[0] - nose[0]))
         features.append(angle)
 
@@ -211,62 +211,11 @@ def _geometric_embedding(
     if len(features) < EMBEDDING_DIM:
         features.extend([0.0] * (EMBEDDING_DIM - len(features)))
 
-    vec = np.asarray(features, dtype=np.float64)
+    vec = np.array(features, dtype=np.float64)
     norm = float(np.linalg.norm(vec))
     if norm > 0:
         vec = vec / norm
-    return [float(x) for x in vec]
-
-
-# ── Matching helpers ───────────────────────────────────────────────────────
-
-
-def cosine_similarity(a: Sequence[float], b: Sequence[float]) -> float:
-    """Cosine similarity between two equal-length float vectors."""
-    va = np.asarray(a, dtype=np.float64)
-    vb = np.asarray(b, dtype=np.float64)
-    if va.size == 0 or vb.size == 0 or va.size != vb.size:
-        return -1.0
-    na = float(np.linalg.norm(va))
-    nb = float(np.linalg.norm(vb))
-    if na == 0.0 or nb == 0.0:
-        return -1.0
-    return float(np.dot(va, vb) / (na * nb))
-
-
-def match_face_to_student(
-    face_embedding: Sequence[float],
-    known_embeddings: dict,
-    threshold: float = 0.6,
-    exclude: Optional[Iterable[str]] = None,
-) -> Optional[str]:
-    """
-    Return the student_id whose registered embedding is most cosine-similar
-    to ``face_embedding`` above ``threshold``, or None if no candidate
-    clears it. ``exclude`` lets the caller skip already-matched students so
-    a single student can't be claimed by two faces in the same frame.
-    """
-    if not known_embeddings or not face_embedding:
-        return None
-
-    skip = set(exclude or ())
-    best_id: Optional[str] = None
-    best_score = -1.0
-
-    for student_id, known_emb in known_embeddings.items():
-        if student_id in skip or not known_emb:
-            continue
-        # Treat zero/near-zero vectors as "not registered".
-        if all(abs(v) < 1e-12 for v in known_emb[:5]):
-            continue
-        score = cosine_similarity(face_embedding, known_emb)
-        if score > best_score:
-            best_score = score
-            best_id = student_id
-
-    if best_id is not None and best_score >= threshold:
-        return best_id
-    return None
+    return vec.tolist()
 
 
 def face_bbox_from_landmarks(
@@ -274,13 +223,8 @@ def face_bbox_from_landmarks(
     frame_w: int,
     frame_h: int,
     padding: float = 0.2,
-) -> tuple:
-    """
-    Compute a (x_min, y_min, x_max, y_max) pixel bbox from normalised
-    landmarks, clipped to frame bounds and expanded by ``padding`` on each
-    side. Returned as a tuple of ints so it can be used directly for numpy
-    slicing.
-    """
+):
+    """Get face bounding box from MediaPipe landmarks with padding."""
     if not landmarks:
         return (0, 0, 0, 0)
 
@@ -291,6 +235,7 @@ def face_bbox_from_landmarks(
 
     pad_x = int((x_max - x_min) * padding)
     pad_y = int((y_max - y_min) * padding)
+
     x_min = max(0, x_min - pad_x)
     y_min = max(0, y_min - pad_y)
     x_max = min(frame_w, x_max + pad_x)
@@ -299,5 +244,47 @@ def face_bbox_from_landmarks(
     return (x_min, y_min, x_max, y_max)
 
 
-# Backwards-compat re-export for any caller that imported the old name.
-compute_geometric_embedding = _geometric_embedding
+def cosine_similarity(a: List[float], b: List[float]) -> float:
+    """Cosine similarity between two vectors."""
+    va = np.array(a, dtype=np.float64)
+    vb = np.array(b, dtype=np.float64)
+    norm_a = float(np.linalg.norm(va))
+    norm_b = float(np.linalg.norm(vb))
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return float(np.dot(va, vb) / (norm_a * norm_b))
+
+
+def match_face_to_student(
+    face_embedding: List[float],
+    known_embeddings: Dict[str, List[float]],
+    threshold: float = 0.4,
+    exclude: Optional[set] = None,
+) -> Optional[str]:
+    """
+    Find best matching student. Threshold 0.4 is the right separator for
+    ArcFace (same person 0.5-0.8, different people 0.0-0.25).
+    """
+    if not known_embeddings:
+        return None
+
+    skip = exclude or set()
+    best_match: Optional[str] = None
+    best_score = -1.0
+
+    for student_id, known_emb in known_embeddings.items():
+        if student_id in skip:
+            continue
+        if not known_emb or len(known_emb) < 10:
+            continue
+        if all(v == 0 for v in known_emb[:5]):
+            continue
+
+        sim = cosine_similarity(face_embedding, known_emb)
+        if sim > best_score:
+            best_score = sim
+            best_match = student_id
+
+    if best_score >= threshold:
+        return best_match
+    return None
