@@ -9,8 +9,13 @@ opencv-python-headless==4.9.0.80
 numpy==1.26.4
 Pillow==10.3.0
 
-# Face analysis (ставим без тяжёлых зависимостей)
+# Face analysis
 mediapipe==0.10.14
+# Real face-recognition embeddings (Facenet 128-dim). tf-keras pulls in
+# TensorFlow ~2.16; model weights are cached to /app/models_cache via
+# DEEPFACE_HOME so they survive container restarts.
+deepface==0.0.93
+tf-keras==2.16.0
 
 # Async задачи
 celery==5.4.0

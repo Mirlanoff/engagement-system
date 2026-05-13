@@ -16,7 +16,11 @@ import structlog
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from app.ml.embedding_utils import EMBEDDING_DIM, compute_geometric_embedding
+from app.ml.embedding_utils import (
+    EMBEDDING_DIM,
+    compute_embedding,
+    face_bbox_from_landmarks,
+)
 from app.ml.model_manager import ModelManager
 
 router = APIRouter(prefix="/embeddings", tags=["embeddings"])
@@ -79,7 +83,10 @@ async def generate_embedding(req: GenerateEmbeddingRequest) -> EmbeddingResponse
         )
 
     bbox, landmarks = detections[0]
-    embedding = compute_geometric_embedding(landmarks)
+    h, w = image.shape[:2]
+    x0, y0, x1, y1 = face_bbox_from_landmarks(landmarks, w, h)
+    face_crop = image[y0:y1, x0:x1] if y1 > y0 and x1 > x0 else None
+    embedding = compute_embedding(face_image=face_crop, landmarks=landmarks)
 
     if not embedding or len(embedding) != EMBEDDING_DIM or _is_zero_vector(embedding):
         return EmbeddingResponse(

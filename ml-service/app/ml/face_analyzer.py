@@ -7,7 +7,8 @@ import cv2
 import structlog
 
 from app.ml.embedding_utils import (
-    compute_geometric_embedding,
+    compute_embedding,
+    face_bbox_from_landmarks,
     match_face_to_student,
 )
 from app.ml.model_manager import ModelManager
@@ -16,11 +17,13 @@ from app.ml.scorer import FaceAnalysis, EngagementScorer
 logger = structlog.get_logger()
 scorer = EngagementScorer()
 
-# Recognition threshold for live frame analysis. Lenient on purpose: live
-# webcam frames have very different lighting / pose than the registration
-# photo, so 0.5 is a good starting point. Tunable via env var.
+# Recognition threshold for live frame analysis. Tuned for the DeepFace
+# Facenet embedding: same person across angles/lighting gives 0.7-0.95
+# cosine similarity, different people typically 0.1-0.4. 0.6 is a safe
+# default that admits the same student under varied conditions while
+# rejecting strangers. Tunable via env var.
 FACE_RECOGNITION_THRESHOLD = float(
-    os.environ.get("FACE_RECOGNITION_THRESHOLD", "0.5")
+    os.environ.get("FACE_RECOGNITION_THRESHOLD", "0.6")
 )
 
 
@@ -101,7 +104,14 @@ class FaceAnalyzer:
                 if sid in student_ids and emb
             }
             for idx_in_order, (_, _, face_landmarks) in enumerate(face_positions):
-                face_emb = compute_geometric_embedding(face_landmarks.landmark)
+                x0, y0, x1, y1 = face_bbox_from_landmarks(
+                    face_landmarks.landmark, w, h,
+                )
+                face_crop = frame[y0:y1, x0:x1]
+                face_emb = compute_embedding(
+                    face_image=face_crop,
+                    landmarks=face_landmarks.landmark,
+                )
                 matched = match_face_to_student(
                     face_emb,
                     known_in_class,

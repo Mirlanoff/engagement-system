@@ -18,6 +18,10 @@ async def lifespan(app: FastAPI):
     # Проверяем что модели загружены
     from app.ml.model_manager import ModelManager
     ModelManager.warmup()
+    # Прогреваем Facenet — первая загрузка веса (~90MB) пройдёт здесь,
+    # а не на первом запросе клиента (иначе бы он висел 30+ секунд).
+    from app.ml import embedding_utils
+    embedding_utils.warmup()
     logger.info("Models loaded and ready")
     yield
     logger.info("ML Service shutting down")
