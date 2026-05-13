@@ -16,6 +16,7 @@ import structlog
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+from app.ml.embedding_utils import EMBEDDING_DIM, compute_geometric_embedding
 from app.ml.model_manager import ModelManager
 
 router = APIRouter(prefix="/embeddings", tags=["embeddings"])
@@ -44,14 +45,6 @@ class EmbeddingResponse(BaseModel):
     message: Optional[str] = None
 
 
-# Embedding model selection. DeepFace is heavy; if it isn't installed (e.g.
-# in CI / minimal Docker images) we fall back to a deterministic 128-dim
-# embedding derived from MediaPipe FaceMesh landmark geometry. Geometry-based
-# embeddings aren't as accurate as ArcFace/Facenet, but they're stable across
-# different photos of the same face and good enough to validate the pipeline.
-EMBEDDING_DIM_FALLBACK = 128
-
-
 @router.post("/generate", response_model=EmbeddingResponse)
 async def generate_embedding(req: GenerateEmbeddingRequest) -> EmbeddingResponse:
     image = _decode_image(req.image_b64)
@@ -64,8 +57,8 @@ async def generate_embedding(req: GenerateEmbeddingRequest) -> EmbeddingResponse
             message="Invalid image data",
         )
 
-    bboxes = _detect_faces(image)
-    faces_count = len(bboxes)
+    detections = _detect_faces(image)
+    faces_count = len(detections)
 
     if faces_count == 0:
         return EmbeddingResponse(
@@ -85,11 +78,10 @@ async def generate_embedding(req: GenerateEmbeddingRequest) -> EmbeddingResponse
             message="Multiple faces detected in image",
         )
 
-    bbox = bboxes[0]
-    face_crop = _crop_face(image, bbox)
-    embedding = _compute_embedding(face_crop)
+    bbox, landmarks = detections[0]
+    embedding = compute_geometric_embedding(landmarks)
 
-    if embedding is None:
+    if not embedding or len(embedding) != EMBEDDING_DIM or _is_zero_vector(embedding):
         return EmbeddingResponse(
             status="error",
             student_id=req.student_id,
@@ -133,14 +125,17 @@ def _decode_image(image_b64: str) -> Optional[np.ndarray]:
     return img
 
 
-def _detect_faces(image_bgr: np.ndarray) -> List[dict]:
+def _detect_faces(image_bgr: np.ndarray):
     """
     Detect faces in the image using the same MediaPipe FaceMesh used for live
-    analysis. Returns a list of bbox dicts (x, y, width, height in pixels).
+    analysis. Returns a list of ``(bbox_dict, landmarks)`` tuples — bbox in
+    pixel coordinates, landmarks as the raw MediaPipe landmark sequence
+    (each element exposes ``.x``, ``.y``, ``.z``) so callers can pass them
+    straight to :func:`compute_geometric_embedding`.
     """
     face_mesh = ModelManager.get_face_detector()
     if face_mesh is None:
-        logger.warning("embedding: face detector unavailable, using stub")
+        logger.warning("embedding: face detector unavailable")
         return []
 
     h, w = image_bgr.shape[:2]
@@ -150,88 +145,18 @@ def _detect_faces(image_bgr: np.ndarray) -> List[dict]:
     if not result.multi_face_landmarks:
         return []
 
-    bboxes: List[dict] = []
-    for landmarks in result.multi_face_landmarks:
-        xs = [lm.x * w for lm in landmarks.landmark]
-        ys = [lm.y * h for lm in landmarks.landmark]
+    detections = []
+    for face_landmarks in result.multi_face_landmarks:
+        xs = [lm.x * w for lm in face_landmarks.landmark]
+        ys = [lm.y * h for lm in face_landmarks.landmark]
         x0, x1 = max(0, int(min(xs))), min(w, int(max(xs)))
         y0, y1 = max(0, int(min(ys))), min(h, int(max(ys)))
         bw, bh = max(1, x1 - x0), max(1, y1 - y0)
-        bboxes.append({"x": x0, "y": y0, "width": bw, "height": bh})
+        bbox = {"x": x0, "y": y0, "width": bw, "height": bh}
+        detections.append((bbox, face_landmarks.landmark))
 
-    return bboxes
-
-
-def _crop_face(image_bgr: np.ndarray, bbox: dict, margin: float = 0.25) -> np.ndarray:
-    """Crop the face region with a configurable margin around the bbox."""
-    h, w = image_bgr.shape[:2]
-    mx = int(bbox["width"] * margin)
-    my = int(bbox["height"] * margin)
-    x0 = max(0, bbox["x"] - mx)
-    y0 = max(0, bbox["y"] - my)
-    x1 = min(w, bbox["x"] + bbox["width"] + mx)
-    y1 = min(h, bbox["y"] + bbox["height"] + my)
-    return image_bgr[y0:y1, x0:x1].copy()
+    return detections
 
 
-def _compute_embedding(face_bgr: np.ndarray) -> Optional[List[float]]:
-    """
-    Try DeepFace first (Facenet, 128-dim). If DeepFace isn't installed,
-    fall back to a deterministic geometry-based embedding so that callers
-    can still validate the pipeline end-to-end.
-    """
-    embedding = _try_deepface(face_bgr)
-    if embedding is not None:
-        return embedding
-    return _fallback_embedding(face_bgr)
-
-
-def _try_deepface(face_bgr: np.ndarray) -> Optional[List[float]]:
-    try:
-        from deepface import DeepFace  # type: ignore
-    except Exception:  # ImportError or transitive failures
-        return None
-
-    try:
-        face_rgb = cv2.cvtColor(face_bgr, cv2.COLOR_BGR2RGB)
-        result = DeepFace.represent(
-            img_path=face_rgb,
-            model_name="Facenet",
-            enforce_detection=False,
-            detector_backend="skip",
-        )
-        if not result:
-            return None
-        embedding = result[0].get("embedding")
-        if embedding is None:
-            return None
-        return [float(x) for x in embedding]
-    except Exception as exc:
-        logger.warning("embedding: DeepFace failed, falling back", error=str(exc))
-        return None
-
-
-def _fallback_embedding(face_bgr: np.ndarray) -> Optional[List[float]]:
-    """
-    Deterministic 128-dim embedding derived from a grayscale, normalized
-    face crop. Stable across re-uploads of the same photo; good enough
-    for plumbing tests and as a sane default when DeepFace is unavailable.
-    """
-    if face_bgr.size == 0:
-        return None
-
-    try:
-        gray = cv2.cvtColor(face_bgr, cv2.COLOR_BGR2GRAY)
-        # Downscale to a fixed 16x8 = 128 vector after histogram equalization.
-        gray = cv2.equalizeHist(gray)
-        resized = cv2.resize(gray, (16, 8), interpolation=cv2.INTER_AREA)
-        vec = resized.astype(np.float32).flatten()
-        # L2-normalize so cosine similarity behaves like distance.
-        norm = float(np.linalg.norm(vec))
-        if norm <= 0:
-            return None
-        vec = vec / norm
-        return [round(float(x), 6) for x in vec]
-    except Exception as exc:
-        logger.warning("embedding: fallback failed", error=str(exc))
-        return None
+def _is_zero_vector(vec: List[float]) -> bool:
+    return all(abs(v) < 1e-12 for v in vec)

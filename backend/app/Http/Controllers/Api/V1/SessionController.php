@@ -199,10 +199,25 @@ class SessionController extends Controller
 
         // Берём UUID студентов класса — ML сопоставит с найденными лицами
         $session->loadMissing('classroom.students');
-        $studentIds = $session->classroom?->students
-            ->pluck('id')
-            ->take(50)
-            ->all() ?? [];
+        $classroomStudents = $session->classroom?->students->take(50)
+            ?? collect();
+        $studentIds = $classroomStudents->pluck('id')->all();
+
+        // У зарегистрированных студентов берём face embedding — ML сопоставит
+        // их по косинусной близости, а не по горизонтальной позиции.
+        $studentEmbeddings = [];
+        foreach ($classroomStudents as $student) {
+            if (!$student->face_registered) {
+                continue;
+            }
+            $emb = $student->face_embedding;
+            if (is_array($emb) && count($emb) > 0) {
+                $studentEmbeddings[$student->id] = array_map(
+                    static fn($v) => (float) $v,
+                    $emb,
+                );
+            }
+        }
 
         // 1) Пробуем настоящий ML анализ
         $mlOk = $this->mlClient->analyzeFrame(
@@ -211,6 +226,7 @@ class SessionController extends Controller
             cameraId: $cameraId,
             frameB64: $frame,
             studentIds: $studentIds,
+            studentEmbeddings: $studentEmbeddings,
         );
 
         if ($mlOk) {
