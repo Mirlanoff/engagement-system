@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\V1\AnalyticsController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\SessionController;
 use App\Http\Controllers\Api\V1\ClassroomController;
+use App\Http\Controllers\Api\V1\StudentController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1/auth')->group(function () {
@@ -30,6 +31,12 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
     Route::get ('sessions/{session}/timeline',[SessionController::class, 'timeline']);
     Route::get ('sessions/{session}/students',[SessionController::class, 'students']);
     Route::post('sessions/{session}/frames',  [SessionController::class, 'ingestFrame']);
+
+    // Студенты и регистрация лиц
+    Route::get   ('students/{classroom}',       [StudentController::class, 'index']);
+    Route::post  ('students/{student}/photo',   [StudentController::class, 'uploadPhoto']);
+    Route::get   ('students/{student}/photo',   [StudentController::class, 'showPhoto']);
+    Route::delete('students/{student}/photo',   [StudentController::class, 'deletePhoto']);
 
     // Админ-операции
     Route::post('admin/reset-dashboard', [AdminController::class, 'resetDashboard']);
