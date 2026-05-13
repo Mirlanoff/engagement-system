@@ -7,70 +7,76 @@
       @started="onSessionStarted"
     />
 
-    <!-- ── Верхняя KPI-полоса школы ─────────────────────────── -->
-    <div class="top-bar">
-      <div class="kpi-bar">
-        <div class="kpi-hero">
-          <div class="hero-value" :class="schoolLevel">
-            {{ schoolAvgDisplay }}<span class="hero-pct">%</span>
-          </div>
-          <div class="hero-label">
-            <span class="hero-title">Средняя вовлечённость по школе</span>
-            <span class="hero-sub">{{ schoolStatusLabel }}</span>
-          </div>
-        </div>
-
-        <div class="kpi-tiles">
-          <div class="kpi-tile">
-            <span class="tile-value">{{ sessions.length }}</span>
-            <span class="tile-label">Активных уроков</span>
-          </div>
-          <div class="kpi-tile">
-            <span class="tile-value">{{ totalDetected }}</span>
-            <span class="tile-label">Студентов на камере</span>
-            <span class="tile-sub">из {{ totalEnrolled }}</span>
-          </div>
-          <div class="kpi-tile" :class="{ danger: alertCount > 0 }">
-            <span class="tile-value">{{ alertCount }}</span>
-            <span class="tile-label">Активных алертов</span>
-          </div>
-        </div>
-      </div>
-
-      <button class="start-btn" @click="showModal = true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polygon points="5,3 19,12 5,21"/>
+    <!-- ─────────────────────────────────────────────────────────
+         State 1: нет активных уроков
+         ───────────────────────────────────────────────────────── -->
+    <div v-if="sessions.length === 0" class="empty-state">
+      <div class="empty-icon">📹</div>
+      <h2 class="empty-title">Нет активных уроков</h2>
+      <button class="start-btn-big" @click="showModal = true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <polygon points="6,4 20,12 6,20" fill="currentColor" stroke="none"/>
         </svg>
         Начать урок
       </button>
+      <p v-if="todayCount > 0" class="today-summary">
+        Сегодня проведено: {{ todayCount }} {{ pluralLesson(todayCount) }}
+      </p>
     </div>
 
-    <!-- ── Пустое состояние ────────────────────────────────── -->
-    <div v-if="sessions.length === 0" class="empty-state">
-      <div class="empty-icon">📹</div>
-      <h3>Нет активных уроков</h3>
-      <p>Нажми «Начать урок» чтобы запустить мониторинг класса</p>
-    </div>
+    <!-- ─────────────────────────────────────────────────────────
+         States 2 + 3: список активных уроков, при клике
+         карточка раскрывается на месте.
+         ───────────────────────────────────────────────────────── -->
+    <div v-else class="sessions-area">
+      <div class="top-bar">
+        <h2 class="top-title">Активные уроки</h2>
+        <button class="start-btn" @click="showModal = true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <polygon points="6,4 20,12 6,20" fill="currentColor" stroke="none"/>
+          </svg>
+          Начать урок
+        </button>
+      </div>
 
-    <!-- ── Карточки активных уроков ────────────────────────── -->
-    <div v-else class="sessions-grid">
-      <SessionCard
-        v-for="session in sessions"
-        :key="session.id"
-        :session="session"
-        :class-avg="averages[session.id] || session.avg_engagement_score || 0"
-        :student-scores="scores[session.id] || {}"
-        @click="$emit('select', session)"
-      />
+      <div class="sessions-grid">
+        <template v-for="session in sessions" :key="session.id">
+          <div
+            v-if="expandedId !== session.id"
+            class="grid-cell"
+          >
+            <SessionCard
+              :session="session"
+              :class-avg="averages[session.id] || 0"
+              :student-scores="scores[session.id] || {}"
+              @click="expand(session.id)"
+            />
+          </div>
+
+          <div
+            v-else
+            class="grid-cell expanded"
+          >
+            <LessonDetail
+              :session="session"
+              :class-avg="averages[session.id] || 0"
+              :student-scores="scores[session.id] || {}"
+              @collapse="collapse(session.id)"
+            />
+          </div>
+        </template>
+      </div>
     </div>
 
   </div>
 </template>
 
 <script setup>
-import { ref, computed, watch, onBeforeUnmount } from 'vue'
+import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useEngagementStore } from '@/stores/engagement'
+import { sessions as sessionsApi } from '@/api'
 import SessionCard       from './SessionCard.vue'
+import LessonDetail      from './LessonDetail.vue'
 import StartSessionModal from './StartSessionModal.vue'
 
 const props = defineProps({
@@ -81,60 +87,18 @@ const props = defineProps({
 const emit = defineEmits(['select', 'refresh', 'session-started'])
 
 const engagementStore = useEngagementStore()
-const showModal = ref(false)
+const showModal       = ref(false)
+const expandedId      = ref(null)
+const todayCount      = ref(0)
 
 function onSessionStarted(session) {
   emit('refresh')
   emit('session-started', session)
 }
 
-// ── Считаем агрегаты по школе ─────────────────────────────────
-const totalEnrolled = computed(() =>
-  props.sessions.reduce((s, sess) => s + (sess.students_count || 0), 0)
-)
-
-const totalDetected = computed(() => {
-  let count = 0
-  for (const sess of props.sessions) {
-    const sc = props.scores[sess.id] || {}
-    for (const id of Object.keys(sc)) {
-      if (sc[id]?.face_detected !== false) count++
-    }
-  }
-  return count
-})
-
-const schoolAvg = computed(() => {
-  if (!props.sessions.length) return 0
-  const avgs = props.sessions
-    .map(s => props.averages[s.id] || s.avg_engagement_score || 0)
-    .filter(v => v > 0)
-  if (!avgs.length) return 0
-  return Math.round(avgs.reduce((a, b) => a + b, 0) / avgs.length)
-})
-
-const schoolAvgDisplay = computed(() =>
-  schoolAvg.value > 0 ? schoolAvg.value : '—'
-)
-
-const schoolLevel = computed(() => {
-  if (!schoolAvg.value) return 'unknown'
-  if (schoolAvg.value >= 70) return 'high'
-  if (schoolAvg.value >= 50) return 'medium'
-  return 'low'
-})
-
-const schoolStatusLabel = computed(() => {
-  if (!props.sessions.length) return 'Уроки не запущены'
-  if (!schoolAvg.value)       return 'Ожидаем первые данные'
-  if (schoolAvg.value >= 70)  return 'Высокая вовлечённость'
-  if (schoolAvg.value >= 50)  return 'Средняя вовлечённость'
-  return 'Требуется внимание'
-})
-
-const alertCount = computed(() => engagementStore.alertCount || 0)
-
-// ── Подписываемся на каждый активный урок (live %, студенты) ─
+// ── Подписка на live-данные для всех активных уроков ───────────
+// Карточки сами должны показывать актуальную среднюю —
+// поэтому подписываемся к каждому уроку как только он появляется.
 const subscribed = new Set()
 
 watch(
@@ -146,115 +110,64 @@ watch(
         subscribed.add(s.id)
       }
     }
+    // Если раскрытый урок больше не активен — сворачиваем
+    if (expandedId.value && !props.sessions.find(s => s.id === expandedId.value)) {
+      expandedId.value = null
+    }
   },
   { immediate: true },
 )
 
+function expand(sessionId) {
+  expandedId.value = sessionId
+  // На всякий случай переподписываемся (idempotent в store)
+  engagementStore.subscribeToSession(sessionId)
+  emit('select', props.sessions.find(s => s.id === sessionId))
+}
+
+function collapse() {
+  expandedId.value = null
+}
+
+// ── Сводка "сегодня" для пустого состояния ────────────────────
+async function loadTodayCount() {
+  try {
+    const { data } = await sessionsApi.list({ status: 'completed' })
+    const today = new Date().toISOString().slice(0, 10)
+    const list  = Array.isArray(data?.data) ? data.data : []
+    todayCount.value = list.filter(s => {
+      const t = s.started_at || s.created_at
+      return t && String(t).startsWith(today)
+    }).length
+  } catch (e) {
+    todayCount.value = 0
+  }
+}
+
+function pluralLesson(n) {
+  const m10 = n % 10
+  const m100 = n % 100
+  if (m100 >= 11 && m100 <= 14) return 'уроков'
+  if (m10 === 1) return 'урок'
+  if (m10 >= 2 && m10 <= 4) return 'урока'
+  return 'уроков'
+}
+
+onMounted(() => {
+  loadTodayCount()
+})
+
 onBeforeUnmount(() => {
-  // Отписку от каналов выполняет DashboardView через store.disconnect() при logout,
-  // а данные нужны и для других вкладок — поэтому здесь ничего не выключаем.
   subscribed.clear()
 })
 </script>
 
 <style scoped>
-.live-overview { display:flex; flex-direction:column; gap:20px; }
-
-/* ── Top bar ────────────────────────────────────────────────── */
-.top-bar {
-  display: flex;
-  align-items: stretch;
-  gap: 16px;
-}
-.kpi-bar {
-  flex: 1;
-  display: grid;
-  grid-template-columns: minmax(260px, 1fr) 2fr;
-  gap: 12px;
-  background: #1e293b;
-  border: 1px solid rgba(255,255,255,0.07);
-  border-radius: 14px;
-  padding: 16px 18px;
-}
-.kpi-hero {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-.hero-value {
-  font-size: 48px;
-  font-weight: 700;
-  letter-spacing: -1.5px;
-  line-height: 1;
-  color: #94a3b8;
-  font-variant-numeric: tabular-nums;
-  transition: color 0.3s;
-}
-.hero-pct { font-size: 20px; font-weight: 500; margin-left: 2px; }
-.hero-value.high    { color: #22c55e; }
-.hero-value.medium  { color: #f59e0b; }
-.hero-value.low     { color: #ef4444; }
-.hero-value.unknown { color: #475569; }
-
-.hero-label { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.hero-title {
-  font-size: 12px;
-  color: #94a3b8;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-.hero-sub {
-  font-size: 13px;
-  color: #cbd5e1;
-  font-weight: 500;
-}
-
-.kpi-tiles {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-}
-.kpi-tile {
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 10px;
-  padding: 10px 12px;
+.live-overview {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 20px;
 }
-.kpi-tile.danger { border-color: rgba(239,68,68,0.4); }
-.tile-value {
-  font-size: 22px;
-  font-weight: 700;
-  color: #f1f5f9;
-  letter-spacing: -0.5px;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-}
-.kpi-tile.danger .tile-value { color: #ef4444; }
-.tile-label { font-size: 11px; color: #64748b; }
-.tile-sub   { font-size: 11px; color: #475569; }
-
-.start-btn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 20px;
-  background: linear-gradient(135deg,#6366f1,#8b5cf6);
-  border: none;
-  border-radius: 12px;
-  color: white;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: opacity .15s, transform .15s;
-  font-family: inherit;
-  align-self: stretch;
-}
-.start-btn:hover  { opacity: .92; transform: translateY(-1px); }
-.start-btn svg    { width: 14px; height: 14px; }
 
 /* ── Empty state ────────────────────────────────────────────── */
 .empty-state {
@@ -263,26 +176,95 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   padding: 80px 20px;
-  color: #475569;
+  gap: 16px;
   text-align: center;
 }
-.empty-icon { font-size: 48px; margin-bottom: 16px; }
-.empty-state h3 { font-size: 16px; font-weight: 600; color: #64748b; margin: 0 0 8px; }
-.empty-state p  { font-size: 13px; color: #475569; margin: 0; }
+.empty-icon { font-size: 64px; opacity: 0.85; }
+.empty-title {
+  font-size: 22px;
+  font-weight: 600;
+  color: #cbd5e1;
+  margin: 0;
+}
+.start-btn-big {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 28px;
+  background: linear-gradient(135deg,#6366f1,#8b5cf6);
+  border: none;
+  border-radius: 12px;
+  color: white;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s ease;
+  box-shadow: 0 8px 24px rgba(99,102,241,0.35);
+  margin-top: 6px;
+}
+.start-btn-big:hover  { transform: translateY(-1px); box-shadow: 0 10px 28px rgba(99,102,241,0.45); }
+.start-btn-big:active { transform: translateY(0); }
+.start-btn-big svg    { width: 18px; height: 18px; }
 
-/* ── Cards grid ─────────────────────────────────────────────── */
-.sessions-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+.today-summary {
+  font-size: 13px;
+  color: #64748b;
+  margin: 8px 0 0;
+}
+
+/* ── Top bar ────────────────────────────────────────────────── */
+.top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 16px;
 }
-
-@media (max-width: 1100px) {
-  .kpi-bar { grid-template-columns: 1fr; }
-  .kpi-tiles { grid-template-columns: repeat(3, 1fr); }
+.top-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #cbd5e1;
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
-@media (max-width: 720px) {
-  .kpi-tiles { grid-template-columns: 1fr 1fr; }
+.start-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  background: linear-gradient(135deg,#6366f1,#8b5cf6);
+  border: none;
+  border-radius: 10px;
+  color: white;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+.start-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(99,102,241,0.35); }
+.start-btn svg   { width: 14px; height: 14px; }
+
+/* ── Sessions grid ──────────────────────────────────────────── */
+.sessions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 16px;
+}
+.grid-cell {
+  display: flex;
+  flex-direction: column;
+  transition: all 0.3s ease;
+}
+.grid-cell.expanded {
+  grid-column: 1 / -1;
+}
+
+@media (min-width: 1600px) {
+  .sessions-grid { grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); }
+}
+@media (max-width: 900px) {
   .sessions-grid { grid-template-columns: 1fr; }
 }
 </style>
