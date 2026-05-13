@@ -12,14 +12,19 @@ class Student extends Model
 
     protected $fillable = [
         'school_id', 'name', 'student_code', 'birth_date',
-        'face_encoding_path', 'consent_given', 'consent_given_at', 'is_active',
+        'face_encoding_path', 'face_embedding', 'photo_path',
+        'face_registered', 'face_registered_at',
+        'consent_given', 'consent_given_at', 'is_active',
     ];
 
     protected $casts = [
-        'birth_date'       => 'date',
-        'consent_given'    => 'boolean',
-        'consent_given_at' => 'datetime',
-        'is_active'        => 'boolean',
+        'birth_date'         => 'date',
+        'face_embedding'     => 'array',
+        'face_registered'    => 'boolean',
+        'face_registered_at' => 'datetime',
+        'consent_given'      => 'boolean',
+        'consent_given_at'   => 'datetime',
+        'is_active'          => 'boolean',
     ];
 
     public function school()
