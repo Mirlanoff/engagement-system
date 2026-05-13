@@ -83,7 +83,7 @@ import LiveOverview  from '@/components/dashboard/LiveOverview.vue'
 import SessionDetail from '@/components/dashboard/SessionDetail.vue'
 import AnalyticsView from '@/components/dashboard/AnalyticsView.vue'
 import AlertsView    from '@/components/dashboard/AlertsView.vue'
-import HistoryView   from '@/components/dashboard/HistoryView.vue'
+import HistoryView   from '@/components/history/HistoryView.vue'
 import WebcamCapture from '@/components/dashboard/WebcamCapture.vue'
 
 const router          = useRouter()
