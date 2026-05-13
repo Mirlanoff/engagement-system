@@ -65,13 +65,15 @@ class MlServiceClient
         string $cameraId,
         string $frameB64,
         array $studentIds,
+        array $studentEmbeddings = [],
     ): bool {
         return $this->post('/capture/analyze-frame', [
-            'session_id'   => $sessionId,
-            'classroom_id' => $classroomId,
-            'camera_id'    => $cameraId,
-            'frame_b64'    => $frameB64,
-            'student_ids'  => array_values($studentIds),
+            'session_id'         => $sessionId,
+            'classroom_id'       => $classroomId,
+            'camera_id'          => $cameraId,
+            'frame_b64'          => $frameB64,
+            'student_ids'        => array_values($studentIds),
+            'student_embeddings' => (object) $studentEmbeddings,
         ]);
     }
 
