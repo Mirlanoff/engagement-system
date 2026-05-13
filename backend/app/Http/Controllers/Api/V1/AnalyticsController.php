@@ -150,6 +150,107 @@ class AnalyticsController extends Controller
     }
 
     /**
+     * GET /api/v1/analytics/students
+     * Per-student breakdown over a period for the user's school
+     * (optionally filtered by classroom).
+     */
+    public function students(Request $request): JsonResponse
+    {
+        $request->validate([
+            'from'         => 'required|date',
+            'to'           => 'required|date|after_or_equal:from',
+            'classroom_id' => 'nullable|uuid',
+        ]);
+
+        $from = Carbon::parse($request->from)->startOfDay();
+        $to   = Carbon::parse($request->to)->endOfDay();
+        $schoolId    = $request->user()->school_id;
+        $classroomId = $request->input('classroom_id');
+
+        // Главный запрос — агрегат по студенту.
+        // face_detected фильтруется через FILTER, чтобы detection_rate
+        // действительно отражал реальный процент детекций.
+        $base = \DB::table('engagement_snapshots as es')
+            ->join('students as s', 's.id', '=', 'es.student_id')
+            ->where('s.school_id', $schoolId)
+            ->whereBetween('es.captured_at', [$from, $to]);
+
+        if ($classroomId) {
+            $base->where('es.classroom_id', $classroomId);
+        }
+
+        $rows = (clone $base)
+            ->selectRaw("
+                s.id   AS student_id,
+                s.name AS name,
+                ROUND(AVG(es.engagement_score) FILTER (WHERE es.face_detected = true)::numeric, 1) AS avg_engagement,
+                MODE() WITHIN GROUP (ORDER BY LOWER(es.emotion))
+                    FILTER (WHERE es.emotion IS NOT NULL AND es.face_detected = true) AS dominant_emotion,
+                ROUND(
+                    100.0 * COUNT(*) FILTER (WHERE es.gaze_yaw IS NOT NULL AND ABS(es.gaze_yaw) < 15)
+                          / NULLIF(COUNT(*) FILTER (WHERE es.gaze_yaw IS NOT NULL), 0),
+                    1
+                ) AS gaze_on_board_pct,
+                ROUND(
+                    100.0 * COUNT(*) FILTER (
+                        WHERE es.head_yaw   IS NOT NULL
+                          AND es.head_pitch IS NOT NULL
+                          AND ABS(es.head_yaw)   < 30
+                          AND ABS(es.head_pitch) < 25
+                    )
+                    / NULLIF(COUNT(*) FILTER (WHERE es.head_yaw IS NOT NULL AND es.head_pitch IS NOT NULL), 0),
+                    1
+                ) AS head_on_board_pct,
+                ROUND(
+                    100.0 * COUNT(*) FILTER (WHERE es.face_detected = true)
+                          / NULLIF(COUNT(*), 0),
+                    1
+                ) AS detection_rate,
+                COUNT(*) AS total_snapshots
+            ")
+            ->groupBy('s.id', 's.name')
+            ->orderByRaw('avg_engagement ASC NULLS LAST')
+            ->get();
+
+        if ($rows->isEmpty()) {
+            return response()->json([
+                'period' => ['from' => $from->toDateString(), 'to' => $to->toDateString()],
+                'data'   => [],
+            ]);
+        }
+
+        // Распределение эмоций — отдельным запросом и мержим в PHP.
+        $emotionRows = (clone $base)
+            ->whereNotNull('es.emotion')
+            ->where('es.face_detected', true)
+            ->selectRaw('es.student_id, LOWER(es.emotion) AS emotion, COUNT(*) AS cnt')
+            ->groupBy('es.student_id', 'emotion')
+            ->get();
+
+        $emotionsByStudent = [];
+        foreach ($emotionRows as $r) {
+            $emotionsByStudent[$r->student_id][$r->emotion] = (int) $r->cnt;
+        }
+
+        $data = $rows->map(fn ($row) => [
+            'student_id'           => $row->student_id,
+            'name'                 => $row->name,
+            'avg_engagement'       => $row->avg_engagement !== null ? (float) $row->avg_engagement : null,
+            'dominant_emotion'     => $row->dominant_emotion,
+            'emotion_distribution' => (object) ($emotionsByStudent[$row->student_id] ?? []),
+            'gaze_on_board_pct'    => $row->gaze_on_board_pct !== null ? (float) $row->gaze_on_board_pct : null,
+            'head_on_board_pct'    => $row->head_on_board_pct !== null ? (float) $row->head_on_board_pct : null,
+            'detection_rate'       => $row->detection_rate    !== null ? (float) $row->detection_rate    : null,
+            'total_snapshots'      => (int) $row->total_snapshots,
+        ]);
+
+        return response()->json([
+            'period' => ['from' => $from->toDateString(), 'to' => $to->toDateString()],
+            'data'   => $data,
+        ]);
+    }
+
+    /**
      * GET /api/v1/analytics/students/{studentId}
      * Персональная аналитика студента
      */

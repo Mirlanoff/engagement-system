@@ -46,11 +46,18 @@ export const sessions = {
 }
 
 export const analytics = {
-  overview: (params) => api.get('/analytics/overview', { params }),
-  emotions: (params) => api.get('/analytics/emotions', { params }),
-  heatmap: (classroomId, params) => api.get(`/analytics/heatmap/${classroomId}`, { params }),
-  student: (studentId, params) => api.get(`/analytics/students/${studentId}`, { params }),
-  compare: (data) => api.post('/analytics/compare', data),
+  overview:     (params) => api.get('/analytics/overview', { params }),
+  emotions:     (params) => api.get('/analytics/emotions', { params }),
+  heatmap:      (classroomId, params) => api.get(`/analytics/heatmap/${classroomId}`, { params }),
+  // Per-student list (table data)
+  studentsList: (params) => api.get('/analytics/students', { params }),
+  // Single student details (history)
+  student:      (studentId, params) => api.get(`/analytics/students/${studentId}`, { params }),
+  compare:      (data) => api.post('/analytics/compare', data),
+}
+
+export const classrooms = {
+  list: () => api.get('/classrooms'),
 }
 
 export const alerts = {
