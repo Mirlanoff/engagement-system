@@ -1,15 +1,27 @@
 import base64
+import os
 import time
-from typing import List, Optional
+from typing import Dict, List, Optional
 import numpy as np
 import cv2
 import structlog
 
+from app.ml.embedding_utils import (
+    compute_geometric_embedding,
+    match_face_to_student,
+)
 from app.ml.model_manager import ModelManager
 from app.ml.scorer import FaceAnalysis, EngagementScorer
 
 logger = structlog.get_logger()
 scorer = EngagementScorer()
+
+# Recognition threshold for live frame analysis. Lenient on purpose: live
+# webcam frames have very different lighting / pose than the registration
+# photo, so 0.5 is a good starting point. Tunable via env var.
+FACE_RECOGNITION_THRESHOLD = float(
+    os.environ.get("FACE_RECOGNITION_THRESHOLD", "0.5")
+)
 
 
 class FaceAnalyzer:
@@ -25,18 +37,27 @@ class FaceAnalyzer:
         camera_id: str,
         student_ids: List[str],
         captured_at: str,
+        student_embeddings: Optional[Dict[str, List[float]]] = None,
     ) -> List[FaceAnalysis]:
         """
         Возвращает список FaceAnalysis — по одному на каждого студента.
-        student_ids — порядок студентов по позициям в классе (слева направо).
+
+        Сопоставление лица → студент:
+        • Если для студента есть face embedding (в ``student_embeddings``) —
+          ищем совпадение по косинусной близости с ``FACE_RECOGNITION_THRESHOLD``.
+        • Оставшиеся (нераспознанные) лица распределяем по горизонтальной
+          позиции между студентами без фото (обратная совместимость).
+
+        student_ids — все студенты класса, student_embeddings — подмножество
+        тех, у кого зарегистрировано лицо.
         """
         t_start = time.time()
+        student_embeddings = student_embeddings or {}
 
         frame = self._decode_frame(frame_bytes_b64)
         if frame is None:
             return []
 
-        results = []
         face_mesh = ModelManager.get_face_detector()
 
         if face_mesh is None:
@@ -48,30 +69,74 @@ class FaceAnalyzer:
 
         if not mesh_result.multi_face_landmarks:
             # Никого не обнаружено
-            for sid in student_ids:
-                results.append(FaceAnalysis(
+            return [
+                FaceAnalysis(
                     student_id=sid,
                     camera_id=camera_id,
                     captured_at=captured_at,
                     face_detected=False,
-                ))
-            return results
+                )
+                for sid in student_ids
+            ]
 
         h, w = frame.shape[:2]
         faces = mesh_result.multi_face_landmarks
 
-        # Сопоставляем найденные лица со студентами по горизонтальной позиции
-        # (сортируем лица слева направо — как сидят студенты)
+        # Сортируем лица слева направо для fallback по позиции.
         face_positions = []
-        for i, landmarks in enumerate(faces):
-            cx = np.mean([lm.x for lm in landmarks.landmark]) * w
-            face_positions.append((cx, i, landmarks))
+        for i, face_landmarks in enumerate(faces):
+            cx = float(np.mean([lm.x for lm in face_landmarks.landmark]) * w)
+            face_positions.append((cx, i, face_landmarks))
+        face_positions.sort(key=lambda x: x[0])
 
-        face_positions.sort(key=lambda x: x[0])  # слева направо
+        # Этап 1: для каждого лица считаем embedding и пытаемся
+        # найти student_id в known embeddings. Студент не может быть
+        # привязан к двум лицам в одном кадре.
+        face_to_student: Dict[int, Optional[str]] = {}
+        matched_students: set[str] = set()
+        if student_embeddings:
+            known_in_class = {
+                sid: emb
+                for sid, emb in student_embeddings.items()
+                if sid in student_ids and emb
+            }
+            for idx_in_order, (_, _, face_landmarks) in enumerate(face_positions):
+                face_emb = compute_geometric_embedding(face_landmarks.landmark)
+                matched = match_face_to_student(
+                    face_emb,
+                    known_in_class,
+                    threshold=FACE_RECOGNITION_THRESHOLD,
+                    exclude=matched_students,
+                )
+                face_to_student[idx_in_order] = matched
+                if matched:
+                    matched_students.add(matched)
 
-        for j, student_id in enumerate(student_ids):
-            if j >= len(face_positions):
-                # Студента нет в кадре
+        # Этап 2: оставшиеся лица распределяем по позиции между
+        # студентами БЕЗ фото. Зарегистрированных, но не совпавших по
+        # embedding, считаем отсутствующими в кадре — не присваиваем им
+        # случайное лицо по позиции, чтобы не возвращать ту же ошибку,
+        # которую этот PR и должен был исправить.
+        unregistered_students = [
+            sid for sid in student_ids if sid not in student_embeddings
+        ]
+        position_iter = iter(unregistered_students)
+        for idx_in_order in range(len(face_positions)):
+            if face_to_student.get(idx_in_order) is None:
+                face_to_student[idx_in_order] = next(position_iter, None)
+
+        # Этап 3: строим FaceAnalysis для всех студентов класса.
+        student_to_face_idx: Dict[str, int] = {
+            sid: idx
+            for idx, sid in face_to_student.items()
+            if sid is not None
+        }
+
+        results: List[FaceAnalysis] = []
+        for student_id in student_ids:
+            face_idx = student_to_face_idx.get(student_id)
+            if face_idx is None:
+                # Студент отсутствует в кадре
                 results.append(FaceAnalysis(
                     student_id=student_id,
                     camera_id=camera_id,
@@ -80,42 +145,58 @@ class FaceAnalyzer:
                 ))
                 continue
 
-            _, _, landmarks = face_positions[j]
-
-            analysis = FaceAnalysis(
+            _, _, face_landmarks = face_positions[face_idx]
+            results.append(self._analyse_face(
+                face_landmarks=face_landmarks,
+                frame=frame,
                 student_id=student_id,
                 camera_id=camera_id,
                 captured_at=captured_at,
-                face_detected=True,
-                face_confidence=0.85,
-            )
-
-            # Bbox
-            xs = [lm.x * w for lm in landmarks.landmark]
-            ys = [lm.y * h for lm in landmarks.landmark]
-            analysis.face_bbox_x = int(min(xs))
-            analysis.face_bbox_y = int(min(ys))
-            analysis.face_bbox_w = int(max(xs) - min(xs))
-            analysis.face_bbox_h = int(max(ys) - min(ys))
-
-            # Поза головы и взгляд из landmarks
-            self._estimate_head_pose(analysis, landmarks, w, h)
-            self._estimate_gaze(analysis, landmarks)
-
-            # Эмоция
-            self._detect_emotion(
-                analysis, frame,
-                analysis.face_bbox_x, analysis.face_bbox_y,
-                analysis.face_bbox_w, analysis.face_bbox_h,
-            )
-
-            # Итоговый score
-            analysis = scorer.compute(analysis)
-            analysis.processing_time_ms = round((time.time() - t_start) * 1000, 2)
-
-            results.append(analysis)
+                t_start=t_start,
+                w=w,
+                h=h,
+            ))
 
         return results
+
+    def _analyse_face(
+        self,
+        *,
+        face_landmarks,
+        frame: np.ndarray,
+        student_id: str,
+        camera_id: str,
+        captured_at: str,
+        t_start: float,
+        w: int,
+        h: int,
+    ) -> FaceAnalysis:
+        analysis = FaceAnalysis(
+            student_id=student_id,
+            camera_id=camera_id,
+            captured_at=captured_at,
+            face_detected=True,
+            face_confidence=0.85,
+        )
+
+        xs = [lm.x * w for lm in face_landmarks.landmark]
+        ys = [lm.y * h for lm in face_landmarks.landmark]
+        analysis.face_bbox_x = int(min(xs))
+        analysis.face_bbox_y = int(min(ys))
+        analysis.face_bbox_w = int(max(xs) - min(xs))
+        analysis.face_bbox_h = int(max(ys) - min(ys))
+
+        self._estimate_head_pose(analysis, face_landmarks, w, h)
+        self._estimate_gaze(analysis, face_landmarks)
+        self._detect_emotion(
+            analysis, frame,
+            analysis.face_bbox_x, analysis.face_bbox_y,
+            analysis.face_bbox_w, analysis.face_bbox_h,
+        )
+
+        analysis = scorer.compute(analysis)
+        analysis.processing_time_ms = round((time.time() - t_start) * 1000, 2)
+        return analysis
 
     def _estimate_head_pose(self, analysis: FaceAnalysis, landmarks, w: int, h: int):
         """

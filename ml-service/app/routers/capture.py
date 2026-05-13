@@ -3,7 +3,7 @@ import hmac
 import json
 import time
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import httpx
 import structlog
@@ -44,6 +44,12 @@ class AnalyzeFrameRequest(BaseModel):
     camera_id: str = "browser"
     frame_b64: str
     student_ids: List[str] = []
+    # Map of student_id → 128-dim face embedding for students with registered
+    # photos. When non-empty, analyze_frame matches detected faces to these
+    # embeddings via cosine similarity instead of assigning by horizontal
+    # position. Students not in this dict (no photo registered) still fall
+    # back to the legacy position-based assignment.
+    student_embeddings: Optional[Dict[str, List[float]]] = None
 
 
 @router.post("/start")
@@ -100,6 +106,7 @@ async def analyze_frame(req: AnalyzeFrameRequest):
             camera_id=req.camera_id,
             student_ids=student_ids,
             captured_at=captured_at,
+            student_embeddings=req.student_embeddings or {},
         )
     except Exception as exc:
         logger.error("analyze_frame failed", error=str(exc), session_id=req.session_id)
