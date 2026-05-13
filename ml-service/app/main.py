@@ -5,7 +5,7 @@ import structlog
 import time
 
 from app.config import settings
-from app.routers import capture, status
+from app.routers import capture, embeddings, status
 from app.middleware import InternalAuthMiddleware
 from app.worker import celery_app
 
@@ -46,6 +46,7 @@ app.add_middleware(InternalAuthMiddleware)
 # Роутеры
 app.include_router(capture.router, prefix="/capture", tags=["capture"])
 app.include_router(status.router, tags=["status"])
+app.include_router(embeddings.router)
 
 
 @app.get("/health")
