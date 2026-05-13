@@ -1,47 +1,58 @@
 <template>
   <div class="history-view">
-    <header class="hv-header">
-      <h2 class="hv-title">История уроков</h2>
-      <button
-        class="hv-refresh"
-        :class="{ busy: loading }"
-        :disabled="loading"
-        @click="load()"
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-          <path d="M4 4v5h5M20 20v-5h-5M5.07 9A7.5 7.5 0 0118.93 7.07M18.93 15A7.5 7.5 0 015.07 16.93"/>
-        </svg>
-        {{ loading ? 'Обновление…' : 'Обновить' }}
-      </button>
-    </header>
+    <!-- Detail (drill-down) -->
+    <SessionDetail
+      v-if="selected"
+      :session="selected"
+      @back="selected = null"
+    />
 
-    <!-- Loading -->
-    <div v-if="loading && completed.length === 0" class="hv-loading">
-      <div v-for="i in 4" :key="i" class="skel-card"></div>
-    </div>
+    <!-- List of completed sessions -->
+    <div v-else>
+      <header class="hv-header">
+        <h2 class="hv-title">История уроков</h2>
+        <button
+          class="hv-refresh"
+          :class="{ busy: loading }"
+          :disabled="loading"
+          @click="load()"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+            <path d="M4 4v5h5M20 20v-5h-5M5.07 9A7.5 7.5 0 0118.93 7.07M18.93 15A7.5 7.5 0 015.07 16.93"/>
+          </svg>
+          {{ loading ? 'Обновление…' : 'Обновить' }}
+        </button>
+      </header>
 
-    <!-- Error -->
-    <div v-else-if="error" class="hv-error">
-      <div class="error-text">Не удалось загрузить историю уроков</div>
-      <button class="retry-btn" @click="load()">Повторить</button>
-    </div>
-
-    <!-- Empty -->
-    <div v-else-if="completed.length === 0" class="hv-empty">
-      <div class="empty-icon">🕐</div>
-      <div class="empty-title">Пока нет завершённых уроков</div>
-      <div class="empty-desc">
-        Когда вы завершите урок, он появится здесь со всей статистикой
+      <!-- Loading -->
+      <div v-if="loading && completed.length === 0" class="hv-loading">
+        <div v-for="i in 4" :key="i" class="skel-card"></div>
       </div>
-    </div>
 
-    <!-- Cards -->
-    <div v-else class="cards-grid">
-      <SessionCard
-        v-for="s in completed"
-        :key="s.id"
-        :session="s"
-      />
+      <!-- Error -->
+      <div v-else-if="error" class="hv-error">
+        <div class="error-text">Не удалось загрузить историю уроков</div>
+        <button class="retry-btn" @click="load()">Повторить</button>
+      </div>
+
+      <!-- Empty -->
+      <div v-else-if="completed.length === 0" class="hv-empty">
+        <div class="empty-icon">🕐</div>
+        <div class="empty-title">Пока нет завершённых уроков</div>
+        <div class="empty-desc">
+          Когда вы завершите урок, он появится здесь со всей статистикой
+        </div>
+      </div>
+
+      <!-- Cards -->
+      <div v-else class="cards-grid">
+        <SessionCard
+          v-for="s in completed"
+          :key="s.id"
+          :session="s"
+          @click="open(s)"
+        />
+      </div>
     </div>
   </div>
 </template>
@@ -49,11 +60,17 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { sessions as sessionsApi } from '@/api'
-import SessionCard from './SessionCard.vue'
+import SessionCard   from './SessionCard.vue'
+import SessionDetail from './SessionDetail.vue'
 
 const completed = ref([])
 const loading   = ref(false)
 const error     = ref(false)
+const selected  = ref(null)
+
+function open(session) {
+  selected.value = session
+}
 
 async function load() {
   loading.value = true
