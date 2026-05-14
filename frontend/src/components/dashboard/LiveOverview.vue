@@ -17,33 +17,32 @@
     <div v-if="sessions.length === 0" class="empty-state">
       <div class="empty-icon">📹</div>
       <h2 class="empty-title">Нет активных уроков</h2>
-      <button class="start-btn-big" @click="showModal = true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-          <polygon points="6,4 20,12 6,20" fill="currentColor" stroke="none"/>
-        </svg>
-        Начать урок
-      </button>
-      <button class="register-btn" @click="showStudentModal = true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="18" height="18">
-          <path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4-4v2"/>
-          <circle cx="9" cy="7" r="4"/>
-          <line x1="19" y1="8" x2="19" y2="14"/>
-          <line x1="22" y1="11" x2="16" y2="11"/>
-        </svg>
-        Регистрация студента
-      </button>
+      <div class="empty-actions">
+        <button class="start-btn-big" @click="showModal = true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <polygon points="6,4 20,12 6,20" fill="currentColor" stroke="none"/>
+          </svg>
+          Начать урок
+        </button>
+        <button class="register-btn" @click="showStudentModal = true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="18" height="18">
+            <path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4-4v2"/>
+            <circle cx="9" cy="7" r="4"/>
+            <line x1="19" y1="8" x2="19" y2="14"/>
+            <line x1="22" y1="11" x2="16" y2="11"/>
+          </svg>
+          Регистрация студента
+        </button>
+      </div>
       <p v-if="todayCount > 0" class="today-summary">
         Сегодня проведено: {{ todayCount }} {{ pluralLesson(todayCount) }}
       </p>
     </div>
 
-    <!--
-      State 2: active lesson cards only.
-      Per-student analytics lives on the «Аналитика» tab.
-    -->
+    <!-- State 2: active lessons -->
     <div v-else class="sessions-area">
       <div class="top-bar">
-        <h2 class="top-title">Активные уроки</h2>
+        <h2 class="top-title">Активный урок</h2>
         <div class="top-actions">
           <button class="register-btn-sm" @click="showStudentModal = true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14">
@@ -52,7 +51,7 @@
               <line x1="19" y1="8" x2="19" y2="14"/>
               <line x1="22" y1="11" x2="16" y2="11"/>
             </svg>
-            Регистрация студента
+            Регистрация
           </button>
           <button class="start-btn" @click="showModal = true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
@@ -63,22 +62,99 @@
         </div>
       </div>
 
-      <p class="hint">
-        Подробная статистика по студентам — на вкладке
-        <span class="hint-tab">«Аналитика»</span>.
-      </p>
+      <!-- Active Session Card with Student Table -->
+      <div
+        v-for="session in sessions"
+        :key="session.id"
+        class="active-lesson-card"
+      >
+        <!-- Card Header -->
+        <div class="lesson-header">
+          <div class="lesson-info">
+            <div class="lesson-title-row">
+              <h3 class="lesson-name">{{ session.subject || session.classroom_name || 'Урок' }}</h3>
+              <div class="live-badge">
+                <span class="live-dot"></span>Live
+              </div>
+            </div>
+            <div class="lesson-meta">
+              <span class="meta-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14">
+                  <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h14a2 2 0 012 2v14a2 2 0 01-2 2z"/>
+                  <path d="M16 2v4M8 2v4M3 10h18"/>
+                </svg>
+                {{ session.classroom_name || 'Класс' }}
+              </span>
+              <span class="meta-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14">
+                  <circle cx="12" cy="12" r="10"/>
+                  <path d="M12 6v6l4 2"/>
+                </svg>
+                {{ formatTime(session.started_at) }}
+              </span>
+              <span class="meta-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14">
+                  <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/>
+                  <circle cx="9" cy="7" r="4"/>
+                  <path d="M23 21v-2a4 4 0 00-3-3.87"/>
+                  <path d="M16 3.13a4 4 0 010 7.75"/>
+                </svg>
+                {{ getOnlineCount(session.id) }}/{{ getTotalStudents(session.id) }}
+              </span>
+              <span class="meta-item duration">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14">
+                  <path d="M5 3l14 9-14 9V3z"/>
+                </svg>
+                {{ getDuration(session.started_at) }}
+              </span>
+            </div>
+          </div>
+        </div>
 
-      <div class="sessions-grid">
-        <div
-          v-for="session in sessions"
-          :key="session.id"
-          class="grid-cell"
-        >
-          <SessionCard
-            :session="session"
-            :class-avg="averages[session.id] || 0"
-            :student-scores="scores[session.id] || {}"
-          />
+        <!-- Student Engagement Table -->
+        <div class="students-table-wrapper">
+          <table class="students-table">
+            <thead>
+              <tr>
+                <th>Студент</th>
+                <th>Вовлечённость</th>
+                <th>Эмоция</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="!studentsList[session.id] || studentsList[session.id].length === 0">
+                <td colspan="3" class="no-data">Нет данных о студентах</td>
+              </tr>
+              <tr
+                v-for="student in studentsList[session.id]"
+                :key="student.id"
+              >
+                <td class="student-name-cell">
+                  <div class="student-avatar">{{ getInitials(student.name) }}</div>
+                  <span>{{ student.name }}</span>
+                </td>
+                <td>
+                  <div class="engagement-cell">
+                    <div class="engagement-bar">
+                      <div
+                        class="engagement-fill"
+                        :class="getEngagementLevel(student.engagement)"
+                        :style="{ width: student.engagement + '%' }"
+                      ></div>
+                    </div>
+                    <span class="engagement-value" :class="getEngagementLevel(student.engagement)">
+                      {{ student.engagement }}%
+                    </span>
+                  </div>
+                </td>
+                <td>
+                  <span class="emotion-badge" :class="'emotion-' + (student.emotion || 'neutral')">
+                    {{ getEmotionLabel(student.emotion) }}
+                  </span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -87,10 +163,9 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, watch, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useEngagementStore } from '@/stores/engagement'
 import { sessions as sessionsApi } from '@/api'
-import SessionCard       from './SessionCard.vue'
 import StartSessionModal from './StartSessionModal.vue'
 import StudentRegistrationModal from './StudentRegistrationModal.vue'
 
@@ -105,6 +180,11 @@ const engagementStore = useEngagementStore()
 const showModal       = ref(false)
 const showStudentModal = ref(false)
 const todayCount      = ref(0)
+const now             = ref(Date.now())
+const studentsList    = ref({})
+
+let nowTimer = null
+let pollTimer = null
 
 function onSessionStarted(session) {
   emit('refresh')
@@ -112,25 +192,108 @@ function onSessionStarted(session) {
 }
 
 function onStudentRegistered(student) {
-  // Можно обновить данные если нужно
   console.log('Студент зарегистрирован:', student)
 }
 
-// Keep cards live-updated: subscribe to every active session.
-const subscribed = new Set()
-
-watch(
-  () => props.sessions.map(s => s.id).join(','),
-  () => {
-    for (const s of props.sessions) {
-      if (s?.id && !subscribed.has(s.id)) {
-        engagementStore.subscribeToSession(s.id)
-        subscribed.add(s.id)
+// ── Polling: load students every 5 seconds ──────────────────
+async function loadStudentsForSessions() {
+  for (const session of props.sessions) {
+    try {
+      const { data } = await sessionsApi.students(session.id)
+      const list = data.data || data || []
+      // Merge with real-time scores from WebSocket
+      const scores = props.scores[session.id] || {}
+      studentsList.value[session.id] = list.map(s => {
+        const live = scores[s.student_id || s.id] || {}
+        return {
+          id: s.student_id || s.id,
+          name: s.name || s.student_name || 'Студент',
+          engagement: Math.round(live.engagement_score ?? live.score ?? s.engagement_score ?? 0),
+          emotion: live.emotion || s.emotion || 'neutral',
+          face_detected: live.face_detected ?? s.face_detected ?? false,
+        }
+      })
+    } catch (e) {
+      // If endpoint fails, build from WebSocket scores
+      const scores = props.scores[session.id] || {}
+      if (Object.keys(scores).length > 0) {
+        studentsList.value[session.id] = Object.entries(scores).map(([id, s]) => ({
+          id,
+          name: s.student_name || s.name || 'Студент',
+          engagement: Math.round(s.engagement_score ?? s.score ?? 0),
+          emotion: s.emotion || 'neutral',
+          face_detected: s.face_detected ?? false,
+        }))
       }
     }
-  },
-  { immediate: true },
-)
+  }
+}
+
+// ── Helpers ──────────────────────────────────────────────────
+function formatTime(dateStr) {
+  if (!dateStr) return '—'
+  const d = new Date(dateStr)
+  return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+}
+
+function getDuration(dateStr) {
+  if (!dateStr) return '—'
+  const started = new Date(dateStr).getTime()
+  const mins = Math.max(0, Math.floor((now.value - started) / 60000))
+  if (mins < 1) return 'только что'
+  if (mins < 60) return `${mins} мин`
+  const h = Math.floor(mins / 60)
+  const m = mins % 60
+  return `${h} ч ${m} мин`
+}
+
+function getOnlineCount(sessionId) {
+  const list = studentsList.value[sessionId] || []
+  return list.filter(s => s.face_detected || s.engagement > 0).length
+}
+
+function getTotalStudents(sessionId) {
+  const list = studentsList.value[sessionId] || []
+  return list.length
+}
+
+function getInitials(name) {
+  if (!name) return '?'
+  const parts = name.trim().split(/\s+/)
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase()
+  return name[0].toUpperCase()
+}
+
+function getEngagementLevel(value) {
+  if (value > 70) return 'high'
+  if (value >= 50) return 'medium'
+  return 'low'
+}
+
+function getEmotionLabel(emotion) {
+  const map = {
+    happy: 'Радость',
+    neutral: 'Нейтральная',
+    sad: 'Грусть',
+    angry: 'Злость',
+    surprise: 'Удивление',
+    fear: 'Страх',
+    disgust: 'Отвращение',
+    focused: 'Сосредоточен',
+    bored: 'Скучает',
+    confused: 'Смущение',
+  }
+  return map[emotion] || emotion || 'Нейтральная'
+}
+
+function pluralLesson(n) {
+  const m10  = n % 10
+  const m100 = n % 100
+  if (m100 >= 11 && m100 <= 14) return 'уроков'
+  if (m10 === 1)                return 'урок'
+  if (m10 >= 2 && m10 <= 4)     return 'урока'
+  return 'уроков'
+}
 
 async function loadTodayCount() {
   try {
@@ -146,21 +309,62 @@ async function loadTodayCount() {
   }
 }
 
-function pluralLesson(n) {
-  const m10  = n % 10
-  const m100 = n % 100
-  if (m100 >= 11 && m100 <= 14) return 'уроков'
-  if (m10 === 1)                return 'урок'
-  if (m10 >= 2 && m10 <= 4)     return 'урока'
-  return 'уроков'
-}
+// ── WebSocket subscriptions ──────────────────────────────────
+const subscribed = new Set()
+
+watch(
+  () => props.sessions.map(s => s.id).join(','),
+  () => {
+    for (const s of props.sessions) {
+      if (s?.id && !subscribed.has(s.id)) {
+        engagementStore.subscribeToSession(s.id)
+        subscribed.add(s.id)
+      }
+    }
+    // Load students when sessions change
+    loadStudentsForSessions()
+  },
+  { immediate: true },
+)
+
+// Update student list when scores change from WebSocket
+watch(
+  () => JSON.stringify(props.scores),
+  () => {
+    // Merge live scores into studentsList
+    for (const session of props.sessions) {
+      const scores = props.scores[session.id] || {}
+      const list = studentsList.value[session.id]
+      if (list && Object.keys(scores).length > 0) {
+        studentsList.value[session.id] = list.map(s => {
+          const live = scores[s.id] || {}
+          return {
+            ...s,
+            engagement: Math.round(live.engagement_score ?? live.score ?? s.engagement),
+            emotion: live.emotion || s.emotion,
+            face_detected: live.face_detected ?? s.face_detected,
+          }
+        })
+      }
+    }
+  },
+)
 
 onMounted(() => {
   loadTodayCount()
+  loadStudentsForSessions()
+  // Update timer every 30s for duration display
+  nowTimer = setInterval(() => { now.value = Date.now() }, 30_000)
+  // Poll student data every 5 seconds
+  pollTimer = setInterval(loadStudentsForSessions, 5000)
 })
 
 onBeforeUnmount(() => {
   subscribed.clear()
+  if (nowTimer) clearInterval(nowTimer)
+  if (pollTimer) clearInterval(pollTimer)
+  nowTimer = null
+  pollTimer = null
 })
 </script>
 
@@ -188,6 +392,14 @@ onBeforeUnmount(() => {
   color: #cbd5e1;
   margin: 0;
 }
+.empty-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 8px;
+}
 .start-btn-big {
   display: inline-flex;
   align-items: center;
@@ -203,20 +415,18 @@ onBeforeUnmount(() => {
   font-family: inherit;
   transition: all 0.2s ease;
   box-shadow: 0 8px 24px rgba(99,102,241,0.35);
-  margin-top: 10px;
 }
 .start-btn-big:hover  { transform: translateY(-1px); box-shadow: 0 10px 28px rgba(99,102,241,0.45); }
-.start-btn-big:active { transform: translateY(0); }
 .start-btn-big svg    { width: 18px; height: 18px; }
 
 .register-btn {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 24px;
+  padding: 14px 24px;
   background: rgba(255,255,255,0.05);
   border: 1px solid rgba(99,102,241,0.4);
-  border-radius: 10px;
+  border-radius: 12px;
   color: #a5b4fc;
   font-size: 14px;
   font-weight: 500;
@@ -241,7 +451,7 @@ onBeforeUnmount(() => {
 .sessions-area {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
 }
 .top-bar {
   display: flex;
@@ -300,26 +510,184 @@ onBeforeUnmount(() => {
   transform: translateY(-1px);
 }
 
-.hint {
-  margin: 0;
-  font-size: 12.5px;
-  color: #64748b;
-}
-.hint-tab {
-  color: #cbd5e1;
-  font-weight: 600;
+/* Active lesson card */
+.active-lesson-card {
+  background: #1e293b;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px;
+  overflow: hidden;
 }
 
-.sessions-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 14px;
+.lesson-header {
+  padding: 20px 24px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
 }
-@media (min-width: 1100px) {
-  .sessions-grid { grid-template-columns: 1fr 1fr; }
+.lesson-info {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
-@media (min-width: 1600px) {
-  .sessions-grid { grid-template-columns: 1fr 1fr 1fr; }
+.lesson-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
-.grid-cell { min-width: 0; }
+.lesson-name {
+  font-size: 18px;
+  font-weight: 700;
+  color: #f1f5f9;
+  margin: 0;
+}
+.live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: rgba(239,68,68,0.1);
+  border: 1px solid rgba(239,68,68,0.3);
+  border-radius: 20px;
+  font-size: 11px;
+  color: #ef4444;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ef4444;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.4; transform: scale(0.8); }
+}
+
+.lesson-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  color: #94a3b8;
+}
+.meta-item svg { flex-shrink: 0; opacity: 0.7; }
+.meta-item.duration { color: #a5b4fc; font-weight: 500; }
+
+/* Students table */
+.students-table-wrapper {
+  padding: 0 24px 20px;
+  overflow-x: auto;
+}
+.students-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.students-table thead th {
+  text-align: left;
+  padding: 12px 12px;
+  color: #64748b;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.students-table tbody tr {
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  transition: background 0.15s;
+}
+.students-table tbody tr:hover {
+  background: rgba(255,255,255,0.02);
+}
+.students-table tbody tr:last-child {
+  border-bottom: none;
+}
+.students-table td {
+  padding: 10px 12px;
+  color: #e2e8f0;
+  vertical-align: middle;
+}
+.no-data {
+  text-align: center;
+  color: #64748b;
+  padding: 24px 12px !important;
+  font-style: italic;
+}
+
+.student-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.student-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: white;
+  flex-shrink: 0;
+}
+
+.engagement-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.engagement-bar {
+  width: 80px;
+  height: 6px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.engagement-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.5s ease;
+}
+.engagement-fill.high   { background: #22c55e; }
+.engagement-fill.medium { background: #f59e0b; }
+.engagement-fill.low    { background: #ef4444; }
+
+.engagement-value {
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  min-width: 36px;
+}
+.engagement-value.high   { color: #22c55e; }
+.engagement-value.medium { color: #f59e0b; }
+.engagement-value.low    { color: #ef4444; }
+
+.emotion-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  background: rgba(148,163,184,0.1);
+  color: #94a3b8;
+  border: 1px solid rgba(148,163,184,0.15);
+}
+.emotion-happy     { background: rgba(34,197,94,0.1);  color: #22c55e; border-color: rgba(34,197,94,0.2); }
+.emotion-focused   { background: rgba(99,102,241,0.1); color: #a5b4fc; border-color: rgba(99,102,241,0.2); }
+.emotion-neutral   { background: rgba(148,163,184,0.1); color: #94a3b8; border-color: rgba(148,163,184,0.15); }
+.emotion-sad       { background: rgba(59,130,246,0.1); color: #60a5fa; border-color: rgba(59,130,246,0.2); }
+.emotion-bored     { background: rgba(245,158,11,0.1); color: #f59e0b; border-color: rgba(245,158,11,0.2); }
+.emotion-angry     { background: rgba(239,68,68,0.1);  color: #ef4444; border-color: rgba(239,68,68,0.2); }
+.emotion-surprise  { background: rgba(168,85,247,0.1); color: #c084fc; border-color: rgba(168,85,247,0.2); }
+.emotion-confused  { background: rgba(245,158,11,0.1); color: #fbbf24; border-color: rgba(245,158,11,0.2); }
+.emotion-fear      { background: rgba(107,114,128,0.1); color: #9ca3af; border-color: rgba(107,114,128,0.2); }
 </style>
