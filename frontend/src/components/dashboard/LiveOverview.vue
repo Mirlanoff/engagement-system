@@ -62,99 +62,48 @@
         </div>
       </div>
 
-      <!-- Active Session Card with Student Table -->
+      <!-- Compact Active Session Card -->
       <div
         v-for="session in sessions"
         :key="session.id"
         class="active-lesson-card"
       >
-        <!-- Card Header -->
-        <div class="lesson-header">
-          <div class="lesson-info">
-            <div class="lesson-title-row">
-              <h3 class="lesson-name">{{ session.subject || session.classroom_name || 'Урок' }}</h3>
-              <div class="live-badge">
-                <span class="live-dot"></span>Live
-              </div>
-            </div>
-            <div class="lesson-meta">
-              <span class="meta-item">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14">
-                  <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h14a2 2 0 012 2v14a2 2 0 01-2 2z"/>
-                  <path d="M16 2v4M8 2v4M3 10h18"/>
-                </svg>
-                {{ session.classroom_name || 'Класс' }}
-              </span>
-              <span class="meta-item">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14">
-                  <circle cx="12" cy="12" r="10"/>
-                  <path d="M12 6v6l4 2"/>
-                </svg>
-                {{ formatTime(session.started_at) }}
-              </span>
-              <span class="meta-item">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14">
-                  <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/>
-                  <circle cx="9" cy="7" r="4"/>
-                  <path d="M23 21v-2a4 4 0 00-3-3.87"/>
-                  <path d="M16 3.13a4 4 0 010 7.75"/>
-                </svg>
-                {{ getOnlineCount(session.id) }}/{{ getTotalStudents(session.id) }}
-              </span>
-              <span class="meta-item duration">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14">
-                  <path d="M5 3l14 9-14 9V3z"/>
-                </svg>
-                {{ getDuration(session.started_at) }}
-              </span>
-            </div>
+        <div class="lesson-title-row">
+          <h3 class="lesson-name">{{ session.subject || session.classroom_name || 'Урок' }}</h3>
+          <div class="live-badge">
+            <span class="live-dot"></span>Live
           </div>
         </div>
-
-        <!-- Student Engagement Table -->
-        <div class="students-table-wrapper">
-          <table class="students-table">
-            <thead>
-              <tr>
-                <th>Студент</th>
-                <th>Вовлечённость</th>
-                <th>Эмоция</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-if="!studentsList[session.id] || studentsList[session.id].length === 0">
-                <td colspan="3" class="no-data">Нет данных о студентах</td>
-              </tr>
-              <tr
-                v-for="student in studentsList[session.id]"
-                :key="student.id"
-              >
-                <td class="student-name-cell">
-                  <div class="student-avatar">{{ getInitials(student.name) }}</div>
-                  <span>{{ student.name }}</span>
-                </td>
-                <td>
-                  <div class="engagement-cell">
-                    <div class="engagement-bar">
-                      <div
-                        class="engagement-fill"
-                        :class="getEngagementLevel(student.engagement)"
-                        :style="{ width: student.engagement + '%' }"
-                      ></div>
-                    </div>
-                    <span class="engagement-value" :class="getEngagementLevel(student.engagement)">
-                      {{ student.engagement }}%
-                    </span>
-                  </div>
-                </td>
-                <td>
-                  <span class="emotion-badge" :class="'emotion-' + (student.emotion || 'neutral')">
-                    {{ getEmotionLabel(student.emotion) }}
-                  </span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+        <div class="lesson-meta">
+          <span class="meta-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14">
+              <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h14a2 2 0 012 2v14a2 2 0 01-2 2z"/>
+              <path d="M16 2v4M8 2v4M3 10h18"/>
+            </svg>
+            {{ session.classroom_name || 'Класс' }}
+          </span>
+          <span class="meta-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M12 6v6l4 2"/>
+            </svg>
+            {{ formatTime(session.started_at) }}
+          </span>
+          <span class="meta-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14">
+              <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/>
+              <circle cx="9" cy="7" r="4"/>
+              <path d="M23 21v-2a4 4 0 00-3-3.87"/>
+              <path d="M16 3.13a4 4 0 010 7.75"/>
+            </svg>
+            {{ getOnlineCount(session.id) }}/{{ getTotalStudents(session.id) }}
+          </span>
+          <span class="meta-item duration">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14">
+              <path d="M5 3l14 9-14 9V3z"/>
+            </svg>
+            {{ getDuration(session.started_at) }}
+          </span>
         </div>
       </div>
     </div>
@@ -514,26 +463,20 @@ onBeforeUnmount(() => {
 .active-lesson-card {
   background: #1e293b;
   border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 16px;
-  overflow: hidden;
-}
-
-.lesson-header {
-  padding: 20px 24px;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-}
-.lesson-info {
+  border-radius: 14px;
+  padding: 16px 20px;
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
+
 .lesson-title-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 .lesson-name {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 700;
   color: #f1f5f9;
   margin: 0;
@@ -541,20 +484,20 @@ onBeforeUnmount(() => {
 .live-badge {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
+  gap: 5px;
+  padding: 3px 8px;
   background: rgba(239,68,68,0.1);
   border: 1px solid rgba(239,68,68,0.3);
   border-radius: 20px;
-  font-size: 11px;
+  font-size: 10px;
   color: #ef4444;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 .live-dot {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: #ef4444;
   animation: pulse 1.4s ease-in-out infinite;
@@ -567,7 +510,7 @@ onBeforeUnmount(() => {
 .lesson-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 16px;
+  gap: 14px;
 }
 .meta-item {
   display: inline-flex;
@@ -578,116 +521,4 @@ onBeforeUnmount(() => {
 }
 .meta-item svg { flex-shrink: 0; opacity: 0.7; }
 .meta-item.duration { color: #a5b4fc; font-weight: 500; }
-
-/* Students table */
-.students-table-wrapper {
-  padding: 0 24px 20px;
-  overflow-x: auto;
-}
-.students-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-.students-table thead th {
-  text-align: left;
-  padding: 12px 12px;
-  color: #64748b;
-  font-weight: 600;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-}
-.students-table tbody tr {
-  border-bottom: 1px solid rgba(255,255,255,0.04);
-  transition: background 0.15s;
-}
-.students-table tbody tr:hover {
-  background: rgba(255,255,255,0.02);
-}
-.students-table tbody tr:last-child {
-  border-bottom: none;
-}
-.students-table td {
-  padding: 10px 12px;
-  color: #e2e8f0;
-  vertical-align: middle;
-}
-.no-data {
-  text-align: center;
-  color: #64748b;
-  padding: 24px 12px !important;
-  font-style: italic;
-}
-
-.student-name-cell {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.student-avatar {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  font-weight: 700;
-  color: white;
-  flex-shrink: 0;
-}
-
-.engagement-cell {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.engagement-bar {
-  width: 80px;
-  height: 6px;
-  background: rgba(255,255,255,0.08);
-  border-radius: 3px;
-  overflow: hidden;
-}
-.engagement-fill {
-  height: 100%;
-  border-radius: 3px;
-  transition: width 0.5s ease;
-}
-.engagement-fill.high   { background: #22c55e; }
-.engagement-fill.medium { background: #f59e0b; }
-.engagement-fill.low    { background: #ef4444; }
-
-.engagement-value {
-  font-size: 13px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  min-width: 36px;
-}
-.engagement-value.high   { color: #22c55e; }
-.engagement-value.medium { color: #f59e0b; }
-.engagement-value.low    { color: #ef4444; }
-
-.emotion-badge {
-  display: inline-block;
-  padding: 3px 10px;
-  border-radius: 12px;
-  font-size: 11px;
-  font-weight: 500;
-  background: rgba(148,163,184,0.1);
-  color: #94a3b8;
-  border: 1px solid rgba(148,163,184,0.15);
-}
-.emotion-happy     { background: rgba(34,197,94,0.1);  color: #22c55e; border-color: rgba(34,197,94,0.2); }
-.emotion-focused   { background: rgba(99,102,241,0.1); color: #a5b4fc; border-color: rgba(99,102,241,0.2); }
-.emotion-neutral   { background: rgba(148,163,184,0.1); color: #94a3b8; border-color: rgba(148,163,184,0.15); }
-.emotion-sad       { background: rgba(59,130,246,0.1); color: #60a5fa; border-color: rgba(59,130,246,0.2); }
-.emotion-bored     { background: rgba(245,158,11,0.1); color: #f59e0b; border-color: rgba(245,158,11,0.2); }
-.emotion-angry     { background: rgba(239,68,68,0.1);  color: #ef4444; border-color: rgba(239,68,68,0.2); }
-.emotion-surprise  { background: rgba(168,85,247,0.1); color: #c084fc; border-color: rgba(168,85,247,0.2); }
-.emotion-confused  { background: rgba(245,158,11,0.1); color: #fbbf24; border-color: rgba(245,158,11,0.2); }
-.emotion-fear      { background: rgba(107,114,128,0.1); color: #9ca3af; border-color: rgba(107,114,128,0.2); }
 </style>
