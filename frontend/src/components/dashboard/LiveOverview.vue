@@ -464,10 +464,11 @@ onBeforeUnmount(() => {
   background: #1e293b;
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: 14px;
-  padding: 16px 20px;
+  padding: 20px 24px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
+  width: 100%;
 }
 
 .lesson-title-row {
