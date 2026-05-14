@@ -7,6 +7,12 @@
       @started="onSessionStarted"
     />
 
+    <StudentRegistrationModal
+      v-if="showStudentModal"
+      @close="showStudentModal = false"
+      @registered="onStudentRegistered"
+    />
+
     <!-- State 1: no active lessons -->
     <div v-if="sessions.length === 0" class="empty-state">
       <div class="empty-icon">📹</div>
@@ -16,6 +22,15 @@
           <polygon points="6,4 20,12 6,20" fill="currentColor" stroke="none"/>
         </svg>
         Начать урок
+      </button>
+      <button class="register-btn" @click="showStudentModal = true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="18" height="18">
+          <path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4-4v2"/>
+          <circle cx="9" cy="7" r="4"/>
+          <line x1="19" y1="8" x2="19" y2="14"/>
+          <line x1="22" y1="11" x2="16" y2="11"/>
+        </svg>
+        Регистрация студента
       </button>
       <p v-if="todayCount > 0" class="today-summary">
         Сегодня проведено: {{ todayCount }} {{ pluralLesson(todayCount) }}
@@ -29,12 +44,23 @@
     <div v-else class="sessions-area">
       <div class="top-bar">
         <h2 class="top-title">Активные уроки</h2>
-        <button class="start-btn" @click="showModal = true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-            <polygon points="6,4 20,12 6,20" fill="currentColor" stroke="none"/>
-          </svg>
-          Начать урок
-        </button>
+        <div class="top-actions">
+          <button class="register-btn-sm" @click="showStudentModal = true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14">
+              <path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4-4v2"/>
+              <circle cx="9" cy="7" r="4"/>
+              <line x1="19" y1="8" x2="19" y2="14"/>
+              <line x1="22" y1="11" x2="16" y2="11"/>
+            </svg>
+            Регистрация студента
+          </button>
+          <button class="start-btn" @click="showModal = true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <polygon points="6,4 20,12 6,20" fill="currentColor" stroke="none"/>
+            </svg>
+            Начать урок
+          </button>
+        </div>
       </div>
 
       <p class="hint">
@@ -66,6 +92,7 @@ import { useEngagementStore } from '@/stores/engagement'
 import { sessions as sessionsApi } from '@/api'
 import SessionCard       from './SessionCard.vue'
 import StartSessionModal from './StartSessionModal.vue'
+import StudentRegistrationModal from './StudentRegistrationModal.vue'
 
 const props = defineProps({
   sessions: { type: Array,  default: () => [] },
@@ -76,11 +103,17 @@ const emit = defineEmits(['select', 'refresh', 'session-started'])
 
 const engagementStore = useEngagementStore()
 const showModal       = ref(false)
+const showStudentModal = ref(false)
 const todayCount      = ref(0)
 
 function onSessionStarted(session) {
   emit('refresh')
   emit('session-started', session)
+}
+
+function onStudentRegistered(student) {
+  // Можно обновить данные если нужно
+  console.log('Студент зарегистрирован:', student)
 }
 
 // Keep cards live-updated: subscribe to every active session.
@@ -176,6 +209,28 @@ onBeforeUnmount(() => {
 .start-btn-big:active { transform: translateY(0); }
 .start-btn-big svg    { width: 18px; height: 18px; }
 
+.register-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(99,102,241,0.4);
+  border-radius: 10px;
+  color: #a5b4fc;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+.register-btn:hover {
+  background: rgba(99,102,241,0.1);
+  border-color: rgba(99,102,241,0.6);
+  color: #c7d2fe;
+  transform: translateY(-1px);
+}
+
 .today-summary {
   margin-top: 6px;
   color: #64748b;
@@ -192,6 +247,11 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
+}
+.top-actions {
+  display: flex;
+  align-items: center;
   gap: 10px;
 }
 .top-title {
@@ -217,6 +277,28 @@ onBeforeUnmount(() => {
 }
 .start-btn:hover  { transform: translateY(-1px); }
 .start-btn svg    { width: 14px; height: 14px; }
+
+.register-btn-sm {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 14px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(99,102,241,0.35);
+  border-radius: 9px;
+  color: #a5b4fc;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+.register-btn-sm:hover {
+  background: rgba(99,102,241,0.1);
+  border-color: rgba(99,102,241,0.55);
+  color: #c7d2fe;
+  transform: translateY(-1px);
+}
 
 .hint {
   margin: 0;

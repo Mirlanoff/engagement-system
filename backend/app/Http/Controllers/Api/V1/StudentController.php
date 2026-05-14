@@ -22,6 +22,38 @@ class StudentController extends Controller
         private readonly MlServiceClient $mlClient,
     ) {}
 
+    // POST /api/v1/students
+    public function store(Request $request): JsonResponse
+    {
+        $request->validate([
+            'name'         => ['required', 'string', 'max:100'],
+            'surname'      => ['required', 'string', 'max:100'],
+            'classroom_id' => ['required', 'string', 'exists:classrooms,id'],
+        ]);
+
+        $classroom = Classroom::findOrFail($request->input('classroom_id'));
+
+        $student = Student::create([
+            'name'      => $request->input('name') . ' ' . $request->input('surname'),
+            'school_id' => $classroom->school_id,
+            'is_active' => true,
+        ]);
+
+        // Привязываем студента к классу
+        $student->classrooms()->attach($classroom->id, [
+            'enrolled_at' => now(),
+        ]);
+
+        return response()->json([
+            'data' => [
+                'id'              => $student->id,
+                'name'            => $student->name,
+                'face_registered' => false,
+                'photo_url'       => null,
+            ],
+        ], 201);
+    }
+
     // GET /api/v1/students/{classroom}
     public function index(Request $request, string $classroomId): JsonResponse
     {
