@@ -33,6 +33,7 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
     Route::post('sessions/{session}/frames',  [SessionController::class, 'ingestFrame']);
 
     // Студенты и регистрация лиц
+    Route::post  ('students',                   [StudentController::class, 'store']);
     Route::get   ('students/{classroom}',       [StudentController::class, 'index']);
     Route::post  ('students/{student}/photo',   [StudentController::class, 'uploadPhoto']);
     Route::get   ('students/{student}/photo',   [StudentController::class, 'showPhoto']);

@@ -56,6 +56,23 @@ export const analytics = {
   compare:      (data) => api.post('/analytics/compare', data),
 }
 
+export const students = {
+  // Создание студента
+  create: (data) => api.post('/students', data),
+  // Список студентов в классе
+  list: (classroomId) => api.get(`/students/${classroomId}`),
+  // Загрузка фото (multipart/form-data)
+  uploadPhoto: (studentId, file) => {
+    const formData = new FormData()
+    formData.append('photo', file)
+    return api.post(`/students/${studentId}/photo`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  // Удаление фото
+  deletePhoto: (studentId) => api.delete(`/students/${studentId}/photo`),
+}
+
 export const classrooms = {
   list: () => api.get('/classrooms'),
 }
