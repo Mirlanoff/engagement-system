@@ -2,12 +2,18 @@
   <div class="analytics-view">
 
     <!-- No active lesson -->
-    <div v-if="activeSessions.length === 0" class="empty-state">
+    <div v-if="!loading && activeSessions.length === 0" class="empty-state">
       <div class="empty-icon">📊</div>
       <h2 class="empty-title">Нет активного урока</h2>
       <p class="empty-desc">
         Перейдите в <span class="empty-tab">Обзор</span>, чтобы начать урок
       </p>
+    </div>
+
+    <!-- Loading -->
+    <div v-else-if="loading && activeSessions.length === 0" class="empty-state">
+      <div class="empty-icon">⏳</div>
+      <h2 class="empty-title">Загрузка...</h2>
     </div>
 
     <!-- Active lesson(s): live analytics -->
@@ -24,13 +30,40 @@
 </template>
 
 <script setup>
-import { computed, watch, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useEngagementStore } from '@/stores/engagement'
+import { sessions as sessionsApi } from '@/api'
 import LiveSessionAnalytics from '@/components/analytics/LiveSessionAnalytics.vue'
 
 const engagementStore = useEngagementStore()
+const loading = ref(false)
+const fetchedSessions = ref([])
 
-const activeSessions = computed(() => engagementStore.activeSessions || [])
+// Use store sessions if available, otherwise use fetched ones
+const activeSessions = computed(() => {
+  const storeSessions = engagementStore.activeSessions || []
+  if (storeSessions.length > 0) return storeSessions
+  return fetchedSessions.value
+})
+
+// Fetch active sessions from API directly
+async function loadActiveSessions() {
+  loading.value = true
+  try {
+    const { data } = await sessionsApi.active()
+    const list = data.data || []
+    fetchedSessions.value = list
+
+    // Also update the store so other components see them
+    if (list.length > 0 && engagementStore.activeSessions.length === 0) {
+      engagementStore.activeSessions = list
+    }
+  } catch (e) {
+    console.warn('[AnalyticsView] loadActiveSessions failed:', e)
+  } finally {
+    loading.value = false
+  }
+}
 
 // Subscribe to every active session so the live data flows in.
 const subscribed = new Set()
@@ -48,8 +81,18 @@ watch(
   { immediate: true },
 )
 
+let pollTimer = null
+
+onMounted(() => {
+  loadActiveSessions()
+  // Poll every 10 seconds to catch new sessions
+  pollTimer = setInterval(loadActiveSessions, 10000)
+})
+
 onBeforeUnmount(() => {
   subscribed.clear()
+  if (pollTimer) clearInterval(pollTimer)
+  pollTimer = null
 })
 </script>
 
