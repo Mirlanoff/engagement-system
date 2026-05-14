@@ -41,6 +41,7 @@ class StudentController extends Controller
 
         // Привязываем студента к классу
         $student->classrooms()->attach($classroom->id, [
+            'id'          => \Illuminate\Support\Str::uuid()->toString(),
             'enrolled_at' => now(),
         ]);
 
