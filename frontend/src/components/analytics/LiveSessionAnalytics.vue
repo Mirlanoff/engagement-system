@@ -255,9 +255,9 @@ const EMOTION_LABEL = {
   confused: 'Смущение',
 }
 function emotionEmoji(s) {
-  if (!s.face_detected) return '•'
+  if (!s.face_detected) return '—'
   const e = (s.emotion || '').toLowerCase()
-  return EMOTION_EMOJI[e] || '😐'
+  return EMOTION_LABEL[e] || s.emotion || 'Нейтрально'
 }
 function emotionLabel(s) {
   if (!s.face_detected) return 'Лицо не найдено'
@@ -645,7 +645,7 @@ watch(() => props.session?.id, (id, prev) => {
 .score.level-low    { color: #ef4444; }
 
 .col-emotion { text-align: center; }
-.emotion { font-size: 18px; line-height: 1; }
+.emotion { font-size: 12px; line-height: 1; color: #cbd5e1; font-weight: 500; }
 
 .gaze, .pose {
   font-size: 12.5px;

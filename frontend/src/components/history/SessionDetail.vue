@@ -222,7 +222,15 @@ const chartFillColor = computed(() => {
 })
 
 const chartData = computed(() => ({
-  labels: timeline.value.map(p => `${p.minute ?? 0} мин`),
+  labels: timeline.value.map(p => {
+    // Show real time on X axis if started_at is available
+    if (props.session.started_at && (p.minute != null)) {
+      const start = new Date(props.session.started_at)
+      const time = new Date(start.getTime() + (p.minute * 60000))
+      return time.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+    }
+    return `${p.minute ?? 0} мин`
+  }),
   datasets: [{
     label:           'Средняя вовлечённость',
     data:            timeline.value.map(p => Number(p.avg_score) || 0),
@@ -372,7 +380,8 @@ const EMOTION_LABEL = {
 }
 function emotionEmoji(e) {
   if (!e) return '—'
-  return EMOTION_EMOJI[String(e).toLowerCase()] || '😐'
+  // Show text label instead of emoji
+  return EMOTION_LABEL[String(e).toLowerCase()] || e
 }
 function emotionLabel(e) {
   if (!e) return ''
@@ -622,6 +631,6 @@ watch(() => props.session?.id, (id, prev) => {
 .score.level-low,     .gaze-pct.level-low    { color: #ef4444; }
 
 .col-emotion { text-align: center; }
-.emotion { font-size: 18px; line-height: 1; }
+.emotion { font-size: 12px; line-height: 1; color: #cbd5e1; font-weight: 500; }
 .col-gaze   { text-align: right; }
 </style>
