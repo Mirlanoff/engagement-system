@@ -13,108 +13,124 @@
       @registered="onStudentRegistered"
     />
 
-    <!-- State 1: no active lessons -->
-    <div v-if="sessions.length === 0" class="empty-state">
-      <div class="empty-icon">📹</div>
-      <h2 class="empty-title">Нет активных уроков</h2>
-      <div class="empty-actions">
-        <button class="start-btn-big" @click="showModal = true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-            <polygon points="6,4 20,12 6,20" fill="currentColor" stroke="none"/>
-          </svg>
-          Начать урок
-        </button>
-        <button class="register-btn" @click="showStudentModal = true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="18" height="18">
+    <!-- Classroom Detail Modal -->
+    <div v-if="selectedClassroom" class="modal-overlay" @click.self="selectedClassroom = null">
+      <div class="classroom-detail-modal">
+        <div class="cdm-header">
+          <h2>{{ selectedClassroom.name }}</h2>
+          <button class="close-btn" @click="selectedClassroom = null">&#10005;</button>
+        </div>
+        <div class="cdm-body">
+          <div class="cdm-info">
+            <div class="cdm-row">
+              <span class="cdm-label">Классный руководитель:</span>
+              <span class="cdm-value">{{ selectedClassroom.head_teacher || 'Не указан' }}</span>
+            </div>
+            <div class="cdm-row">
+              <span class="cdm-label">Кол-во студентов:</span>
+              <span class="cdm-value">{{ classroomStudents.length }}</span>
+            </div>
+          </div>
+          <div class="cdm-students">
+            <h3 class="cdm-students-title">Список студентов</h3>
+            <div v-if="loadingStudents" class="cdm-loading">Загрузка...</div>
+            <div v-else-if="classroomStudents.length === 0" class="cdm-empty">Нет студентов в этом классе</div>
+            <div v-else class="cdm-students-list">
+              <div
+                v-for="student in classroomStudents"
+                :key="student.id"
+                class="cdm-student-row"
+              >
+                <div class="cdm-student-avatar">
+                  <img v-if="student.photo_url" :src="student.photo_url" alt="" />
+                  <span v-else>{{ getInitials(student.name) }}</span>
+                </div>
+                <span class="cdm-student-name">{{ student.name }}</span>
+                <span class="cdm-student-face" :class="{ registered: student.face_registered }">
+                  {{ student.face_registered ? 'Лицо зарег.' : 'Нет лица' }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Top actions -->
+    <div class="top-bar">
+      <h2 class="top-title">Обзор</h2>
+      <div class="top-actions">
+        <button class="register-btn-sm" @click="showStudentModal = true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14">
             <path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4-4v2"/>
             <circle cx="9" cy="7" r="4"/>
             <line x1="19" y1="8" x2="19" y2="14"/>
             <line x1="22" y1="11" x2="16" y2="11"/>
           </svg>
-          Регистрация студента
+          Регистрация
+        </button>
+        <button class="start-btn" @click="showModal = true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <polygon points="6,4 20,12 6,20" fill="currentColor" stroke="none"/>
+          </svg>
+          Начать урок
         </button>
       </div>
-      <p v-if="todayCount > 0" class="today-summary">
-        Сегодня проведено: {{ todayCount }} {{ pluralLesson(todayCount) }}
-      </p>
     </div>
 
-    <!-- State 2: active lessons -->
-    <div v-else class="sessions-area">
-      <div class="top-bar">
-        <h2 class="top-title">Активный урок</h2>
-        <div class="top-actions">
-          <button class="register-btn-sm" @click="showStudentModal = true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14">
-              <path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4-4v2"/>
-              <circle cx="9" cy="7" r="4"/>
-              <line x1="19" y1="8" x2="19" y2="14"/>
-              <line x1="22" y1="11" x2="16" y2="11"/>
-            </svg>
-            Регистрация
-          </button>
-          <button class="start-btn" @click="showModal = true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-              <polygon points="6,4 20,12 6,20" fill="currentColor" stroke="none"/>
-            </svg>
-            Начать урок
-          </button>
-        </div>
-      </div>
-
-      <!-- Compact Active Session Card -->
-      <div
-        v-for="session in sessions"
-        :key="session.id"
-        class="active-lesson-card"
-      >
-        <div class="lesson-title-row">
-          <h3 class="lesson-name">{{ session.subject || session.classroom_name || 'Урок' }}</h3>
-          <div class="live-badge">
-            <span class="live-dot"></span>Live
+    <!-- Active classes section -->
+    <section v-if="activeClassrooms.length > 0" class="section">
+      <h3 class="section-title">Активные классы <span class="badge">{{ activeClassrooms.length }}</span></h3>
+      <div class="classrooms-grid">
+        <div
+          v-for="c in activeClassrooms"
+          :key="c.id"
+          class="classroom-card active"
+          @click="openClassroom(c)"
+        >
+          <div class="cc-top">
+            <span class="cc-name">{{ c.name }}</span>
+            <div class="live-badge"><span class="live-dot"></span>Live</div>
+          </div>
+          <div class="cc-meta">
+            <span v-if="c.head_teacher">{{ c.head_teacher }}</span>
+            <span>{{ c.students_count }} студентов</span>
           </div>
         </div>
-        <div class="lesson-meta">
-          <span class="meta-item">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14">
-              <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h14a2 2 0 012 2v14a2 2 0 01-2 2z"/>
-              <path d="M16 2v4M8 2v4M3 10h18"/>
-            </svg>
-            {{ session.classroom_name || 'Класс' }}
-          </span>
-          <span class="meta-item">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14">
-              <circle cx="12" cy="12" r="10"/>
-              <path d="M12 6v6l4 2"/>
-            </svg>
-            {{ formatTime(session.started_at) }}
-          </span>
-          <span class="meta-item">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14">
-              <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/>
-              <circle cx="9" cy="7" r="4"/>
-              <path d="M23 21v-2a4 4 0 00-3-3.87"/>
-              <path d="M16 3.13a4 4 0 010 7.75"/>
-            </svg>
-            {{ getOnlineCount(session.id) }}/{{ getTotalStudents(session.id) }}
-          </span>
-          <span class="meta-item duration">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14">
-              <path d="M5 3l14 9-14 9V3z"/>
-            </svg>
-            {{ getDuration(session.started_at) }}
-          </span>
+      </div>
+    </section>
+
+    <!-- All classes section -->
+    <section class="section">
+      <h3 class="section-title">Все классы <span class="badge">{{ allClassrooms.length }}</span></h3>
+      <div v-if="allClassrooms.length === 0" class="empty-mini">
+        Нет классов
+      </div>
+      <div v-else class="classrooms-grid">
+        <div
+          v-for="c in inactiveClassrooms"
+          :key="c.id"
+          class="classroom-card"
+          @click="openClassroom(c)"
+        >
+          <div class="cc-top">
+            <span class="cc-name">{{ c.name }}</span>
+          </div>
+          <div class="cc-meta">
+            <span v-if="c.head_teacher">{{ c.head_teacher }}</span>
+            <span>{{ c.students_count }} студентов</span>
+          </div>
         </div>
       </div>
-    </div>
+    </section>
 
   </div>
 </template>
 
 <script setup>
-import { ref, watch, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useEngagementStore } from '@/stores/engagement'
-import { sessions as sessionsApi } from '@/api'
+import { classrooms as classroomsApi, students as studentsApi } from '@/api'
 import StartSessionModal from './StartSessionModal.vue'
 import StudentRegistrationModal from './StudentRegistrationModal.vue'
 
@@ -128,82 +144,58 @@ const emit = defineEmits(['select', 'refresh', 'session-started'])
 const engagementStore = useEngagementStore()
 const showModal       = ref(false)
 const showStudentModal = ref(false)
-const todayCount      = ref(0)
-const now             = ref(Date.now())
-const studentsList    = ref({})
 
-let nowTimer = null
-let pollTimer = null
+// Classrooms
+const allClassrooms = ref([])
+const selectedClassroom = ref(null)
+const classroomStudents = ref([])
+const loadingStudents = ref(false)
+
+const activeClassrooms = computed(() =>
+  allClassrooms.value.filter(c => c.is_lesson_active)
+)
+const inactiveClassrooms = computed(() =>
+  allClassrooms.value.filter(c => !c.is_lesson_active)
+)
 
 function onSessionStarted(session) {
   emit('refresh')
   emit('session-started', session)
+  loadClassrooms()
 }
 
 function onStudentRegistered(student) {
   console.log('Студент зарегистрирован:', student)
-}
-
-// ── Polling: load students every 5 seconds ──────────────────
-async function loadStudentsForSessions() {
-  for (const session of props.sessions) {
-    try {
-      const { data } = await sessionsApi.students(session.id)
-      const list = data.data || data || []
-      // Merge with real-time scores from WebSocket
-      const scores = props.scores[session.id] || {}
-      studentsList.value[session.id] = list.map(s => {
-        const live = scores[s.student_id || s.id] || {}
-        return {
-          id: s.student_id || s.id,
-          name: s.name || s.student_name || 'Студент',
-          engagement: Math.round(live.engagement_score ?? live.score ?? s.engagement_score ?? 0),
-          emotion: live.emotion || s.emotion || 'neutral',
-          face_detected: live.face_detected ?? s.face_detected ?? false,
-        }
-      })
-    } catch (e) {
-      // If endpoint fails, build from WebSocket scores
-      const scores = props.scores[session.id] || {}
-      if (Object.keys(scores).length > 0) {
-        studentsList.value[session.id] = Object.entries(scores).map(([id, s]) => ({
-          id,
-          name: s.student_name || s.name || 'Студент',
-          engagement: Math.round(s.engagement_score ?? s.score ?? 0),
-          emotion: s.emotion || 'neutral',
-          face_detected: s.face_detected ?? false,
-        }))
-      }
-    }
+  // Reload classroom students if modal is open
+  if (selectedClassroom.value) {
+    loadClassroomStudents(selectedClassroom.value.id)
   }
 }
 
-// ── Helpers ──────────────────────────────────────────────────
-function formatTime(dateStr) {
-  if (!dateStr) return '—'
-  const d = new Date(dateStr)
-  return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+async function loadClassrooms() {
+  try {
+    const { data } = await classroomsApi.list()
+    allClassrooms.value = data.data || []
+  } catch (e) {
+    allClassrooms.value = []
+  }
 }
 
-function getDuration(dateStr) {
-  if (!dateStr) return '—'
-  const started = new Date(dateStr).getTime()
-  const mins = Math.max(0, Math.floor((now.value - started) / 60000))
-  if (mins < 1) return 'только что'
-  if (mins < 60) return `${mins} мин`
-  const h = Math.floor(mins / 60)
-  const m = mins % 60
-  return `${h} ч ${m} мин`
+async function openClassroom(classroom) {
+  selectedClassroom.value = classroom
+  await loadClassroomStudents(classroom.id)
 }
 
-function getOnlineCount(sessionId) {
-  const list = studentsList.value[sessionId] || []
-  return list.filter(s => s.face_detected || s.engagement > 0).length
-}
-
-function getTotalStudents(sessionId) {
-  const list = studentsList.value[sessionId] || []
-  return list.length
+async function loadClassroomStudents(classroomId) {
+  loadingStudents.value = true
+  try {
+    const { data } = await studentsApi.list(classroomId)
+    classroomStudents.value = data.data || []
+  } catch (e) {
+    classroomStudents.value = []
+  } finally {
+    loadingStudents.value = false
+  }
 }
 
 function getInitials(name) {
@@ -213,107 +205,15 @@ function getInitials(name) {
   return name[0].toUpperCase()
 }
 
-function getEngagementLevel(value) {
-  if (value > 70) return 'high'
-  if (value >= 50) return 'medium'
-  return 'low'
-}
-
-function getEmotionLabel(emotion) {
-  const map = {
-    happy: 'Радость',
-    neutral: 'Нейтральная',
-    sad: 'Грусть',
-    angry: 'Злость',
-    surprise: 'Удивление',
-    fear: 'Страх',
-    disgust: 'Отвращение',
-    focused: 'Сосредоточен',
-    bored: 'Скучает',
-    confused: 'Смущение',
-  }
-  return map[emotion] || emotion || 'Нейтральная'
-}
-
-function pluralLesson(n) {
-  const m10  = n % 10
-  const m100 = n % 100
-  if (m100 >= 11 && m100 <= 14) return 'уроков'
-  if (m10 === 1)                return 'урок'
-  if (m10 >= 2 && m10 <= 4)     return 'урока'
-  return 'уроков'
-}
-
-async function loadTodayCount() {
-  try {
-    const { data } = await sessionsApi.list({ status: 'completed' })
-    const today = new Date().toISOString().slice(0, 10)
-    const list  = Array.isArray(data?.data) ? data.data : []
-    todayCount.value = list.filter(s => {
-      const t = s.started_at || s.created_at
-      return t && String(t).startsWith(today)
-    }).length
-  } catch (e) {
-    todayCount.value = 0
-  }
-}
-
-// ── WebSocket subscriptions ──────────────────────────────────
-const subscribed = new Set()
-
-watch(
-  () => props.sessions.map(s => s.id).join(','),
-  () => {
-    for (const s of props.sessions) {
-      if (s?.id && !subscribed.has(s.id)) {
-        engagementStore.subscribeToSession(s.id)
-        subscribed.add(s.id)
-      }
-    }
-    // Load students when sessions change
-    loadStudentsForSessions()
-  },
-  { immediate: true },
-)
-
-// Update student list when scores change from WebSocket
-watch(
-  () => JSON.stringify(props.scores),
-  () => {
-    // Merge live scores into studentsList
-    for (const session of props.sessions) {
-      const scores = props.scores[session.id] || {}
-      const list = studentsList.value[session.id]
-      if (list && Object.keys(scores).length > 0) {
-        studentsList.value[session.id] = list.map(s => {
-          const live = scores[s.id] || {}
-          return {
-            ...s,
-            engagement: Math.round(live.engagement_score ?? live.score ?? s.engagement),
-            emotion: live.emotion || s.emotion,
-            face_detected: live.face_detected ?? s.face_detected,
-          }
-        })
-      }
-    }
-  },
-)
+let refreshTimer = null
 
 onMounted(() => {
-  loadTodayCount()
-  loadStudentsForSessions()
-  // Update timer every 30s for duration display
-  nowTimer = setInterval(() => { now.value = Date.now() }, 30_000)
-  // Poll student data every 5 seconds
-  pollTimer = setInterval(loadStudentsForSessions, 5000)
+  loadClassrooms()
+  refreshTimer = setInterval(loadClassrooms, 15000)
 })
 
 onBeforeUnmount(() => {
-  subscribed.clear()
-  if (nowTimer) clearInterval(nowTimer)
-  if (pollTimer) clearInterval(pollTimer)
-  nowTimer = null
-  pollTimer = null
+  if (refreshTimer) clearInterval(refreshTimer)
 })
 </script>
 
@@ -321,87 +221,9 @@ onBeforeUnmount(() => {
 .live-overview {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 20px;
 }
 
-/* Empty state */
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 80px 20px;
-  gap: 16px;
-  text-align: center;
-}
-.empty-icon  { font-size: 56px; opacity: 0.85; }
-.empty-title {
-  font-size: 22px;
-  font-weight: 600;
-  color: #cbd5e1;
-  margin: 0;
-}
-.empty-actions {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  flex-wrap: wrap;
-  justify-content: center;
-  margin-top: 8px;
-}
-.start-btn-big {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 14px 30px;
-  background: linear-gradient(135deg,#6366f1,#8b5cf6);
-  border: none;
-  border-radius: 12px;
-  color: white;
-  font-size: 16px;
-  font-weight: 600;
-  cursor: pointer;
-  font-family: inherit;
-  transition: all 0.2s ease;
-  box-shadow: 0 8px 24px rgba(99,102,241,0.35);
-}
-.start-btn-big:hover  { transform: translateY(-1px); box-shadow: 0 10px 28px rgba(99,102,241,0.45); }
-.start-btn-big svg    { width: 18px; height: 18px; }
-
-.register-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 14px 24px;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(99,102,241,0.4);
-  border-radius: 12px;
-  color: #a5b4fc;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  font-family: inherit;
-  transition: all 0.2s ease;
-}
-.register-btn:hover {
-  background: rgba(99,102,241,0.1);
-  border-color: rgba(99,102,241,0.6);
-  color: #c7d2fe;
-  transform: translateY(-1px);
-}
-
-.today-summary {
-  margin-top: 6px;
-  color: #64748b;
-  font-size: 13px;
-}
-
-/* Sessions area */
-.sessions-area {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
 .top-bar {
   display: flex;
   align-items: center;
@@ -456,51 +278,104 @@ onBeforeUnmount(() => {
   background: rgba(99,102,241,0.1);
   border-color: rgba(99,102,241,0.55);
   color: #c7d2fe;
-  transform: translateY(-1px);
 }
 
-/* Active lesson card */
-.active-lesson-card {
+/* Sections */
+.section { display: flex; flex-direction: column; gap: 12px; }
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.badge {
+  background: rgba(99,102,241,0.15);
+  color: #a5b4fc;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.empty-mini {
+  padding: 20px;
+  text-align: center;
+  color: #64748b;
+  font-size: 13px;
+}
+
+/* Classrooms grid */
+.classrooms-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.classroom-card {
   background: #1e293b;
   border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 14px;
-  padding: 20px 24px;
+  border-radius: 12px;
+  padding: 16px 18px;
+  cursor: pointer;
+  transition: all 0.2s ease;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  width: 100%;
+  gap: 8px;
+}
+.classroom-card:hover {
+  background: #243349;
+  transform: translateY(-1px);
+  border-color: rgba(99,102,241,0.3);
+}
+.classroom-card.active {
+  border-color: rgba(34,197,94,0.4);
+  background: rgba(34,197,94,0.05);
+}
+.classroom-card.active:hover {
+  border-color: rgba(34,197,94,0.6);
+  background: rgba(34,197,94,0.08);
 }
 
-.lesson-title-row {
+.cc-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
-.lesson-name {
-  font-size: 16px;
-  font-weight: 700;
+.cc-name {
+  font-size: 15px;
+  font-weight: 600;
   color: #f1f5f9;
-  margin: 0;
 }
+.cc-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
 .live-badge {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 3px 8px;
-  background: rgba(239,68,68,0.1);
-  border: 1px solid rgba(239,68,68,0.3);
+  gap: 4px;
+  padding: 2px 7px;
+  background: rgba(34,197,94,0.1);
+  border: 1px solid rgba(34,197,94,0.3);
   border-radius: 20px;
-  font-size: 10px;
-  color: #ef4444;
+  font-size: 9px;
+  color: #22c55e;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
 }
 .live-dot {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
-  background: #ef4444;
+  background: #22c55e;
   animation: pulse 1.4s ease-in-out infinite;
 }
 @keyframes pulse {
@@ -508,18 +383,69 @@ onBeforeUnmount(() => {
   50%      { opacity: 0.4; transform: scale(0.8); }
 }
 
-.lesson-meta {
+/* Classroom Detail Modal */
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.7);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 100;
+}
+.classroom-detail-modal {
+  background: #0d1220;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 16px;
+  width: 500px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+.cdm-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 22px;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+}
+.cdm-header h2 { font-size: 16px; font-weight: 600; color: #f1f5f9; margin: 0; }
+.close-btn {
+  width: 28px; height: 28px; border: none;
+  background: transparent; color: #64748b;
+  cursor: pointer; border-radius: 6px; font-size: 14px;
+}
+.close-btn:hover { color: #f1f5f9; background: rgba(255,255,255,0.06); }
+
+.cdm-body { padding: 20px 22px; display: flex; flex-direction: column; gap: 18px; }
+.cdm-info { display: flex; flex-direction: column; gap: 8px; }
+.cdm-row { display: flex; justify-content: space-between; font-size: 13px; }
+.cdm-label { color: #94a3b8; }
+.cdm-value { color: #f1f5f9; font-weight: 500; }
+
+.cdm-students { display: flex; flex-direction: column; gap: 10px; }
+.cdm-students-title { font-size: 13px; font-weight: 600; color: #cbd5e1; margin: 0; }
+.cdm-loading, .cdm-empty { font-size: 13px; color: #64748b; padding: 12px 0; }
+
+.cdm-students-list { display: flex; flex-direction: column; gap: 6px; }
+.cdm-student-row {
   display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-}
-.meta-item {
-  display: inline-flex;
   align-items: center;
-  gap: 5px;
-  font-size: 13px;
-  color: #94a3b8;
+  gap: 10px;
+  padding: 8px 10px;
+  background: rgba(255,255,255,0.03);
+  border-radius: 8px;
 }
-.meta-item svg { flex-shrink: 0; opacity: 0.7; }
-.meta-item.duration { color: #a5b4fc; font-weight: 500; }
+.cdm-student-avatar {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; color: white;
+  overflow: hidden; flex-shrink: 0;
+}
+.cdm-student-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.cdm-student-name { flex: 1; font-size: 13px; color: #f1f5f9; }
+.cdm-student-face {
+  font-size: 11px; padding: 2px 8px; border-radius: 10px;
+  background: rgba(239,68,68,0.1); color: #ef4444;
+  border: 1px solid rgba(239,68,68,0.2);
+}
+.cdm-student-face.registered {
+  background: rgba(34,197,94,0.1); color: #22c55e;
+  border-color: rgba(34,197,94,0.2);
+}
 </style>

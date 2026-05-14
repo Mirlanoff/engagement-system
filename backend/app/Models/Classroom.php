@@ -11,7 +11,7 @@ class Classroom extends Model
     use HasUuids, SoftDeletes;
 
     protected $fillable = [
-        'school_id', 'name', 'code', 'capacity',
+        'school_id', 'name', 'code', 'capacity', 'head_teacher',
         'camera_config', 'detection_zones', 'settings', 'is_active',
     ];
 

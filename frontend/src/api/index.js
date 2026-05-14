@@ -75,6 +75,7 @@ export const students = {
 
 export const classrooms = {
   list: () => api.get('/classrooms'),
+  get: (id) => api.get(`/classrooms/${id}`),
 }
 
 export const alerts = {

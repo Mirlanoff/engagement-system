@@ -19,6 +19,7 @@ Route::prefix('v1/auth')->group(function () {
 Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
     // Классы
     Route::get('classrooms', [ClassroomController::class, 'index']);
+    Route::get('classrooms/{classroom}', [ClassroomController::class, 'show']);
 
     // Сессии
     Route::get ('sessions/active',            [SessionController::class, 'active']);
